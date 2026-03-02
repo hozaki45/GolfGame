@@ -2,7 +2,7 @@ name: Golf Betting Analysis
 
 on:
   schedule:
-    - cron: '0 9 * * 2'       # Every Tuesday 09:00 UTC (18:00 JST)
+    - cron: '0 10 * * 3'      # Every Wednesday 10:00 UTC (19:00 JST)
   workflow_dispatch:            # Manual trigger
 
 permissions:
