@@ -78,7 +78,7 @@ def generate_html(
 
 def save_html(
     result: GroupAnalysisResult,
-    output_path: str = "data/output/index.html",
+    output_path: str = "data/output/dashboard.html",
     course_fit: dict | None = None,
     ml_result: dict | None = None,
     egs_result=None,
@@ -937,7 +937,8 @@ def _footer(generated_at: str) -> str:
     except (ValueError, TypeError):
         ts = generated_at
     return f"""<div class="footer">
-Vegas Insider + The Odds API &middot; {ts}
+Vegas Insider + The Odds API &middot; {ts} |
+<a href="index.html">Home</a> | <a href="review.html">Post-Tournament Review</a>
 </div>"""
 
 

@@ -118,6 +118,13 @@ def collect_results(
     report_status = format_status_report(status)
     print(report_status)
 
+    # ポータルページ更新
+    try:
+        from src.portal import generate_portal
+        generate_portal()
+    except Exception as e:
+        print(f"[WARN] Portal update skipped: {e}")
+
     return True
 
 
@@ -196,6 +203,13 @@ def collect_all_pending() -> dict:
     accuracy = None
     if collected > 0:
         accuracy = get_ml_accuracy()
+
+    # ポータルページ更新
+    try:
+        from src.portal import generate_portal
+        generate_portal()
+    except Exception as e:
+        print(f"  [WARN] Portal update skipped: {e}")
 
     return {
         "collected": collected,

@@ -756,7 +756,7 @@ def _footer() -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     return f"""<div class="footer">
 Post-Tournament Review generated {now} |
-<a href="index.html">View Pre-Tournament Dashboard →</a>
+<a href="index.html">Home</a> | <a href="dashboard.html">Pre-Tournament Dashboard</a>
 </div>"""
 
 

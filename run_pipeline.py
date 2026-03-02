@@ -263,6 +263,10 @@ def main() -> int:
         else:
             print("\n[INFO] ML prediction disabled in config")
 
+    # ポータルページ生成
+    from src.portal import generate_portal
+    generate_portal()
+
     print("\n" + "=" * 60)
     print("  Pipeline complete!")
     print(f"  Open {html_path} in a browser to view the report.")
