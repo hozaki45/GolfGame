@@ -43,18 +43,20 @@ jobs:
             data/golfgame.db
             data/pga_stats.db
             data/models
+            data/output
           key: golfdata-${{ github.run_id }}
           restore-keys: golfdata-
 
       - name: Restore data from release backup
         if: steps.db-cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p data/models
+          mkdir -p data/models data/output
           gh release download db-backup -D /tmp/db-restore/ 2>/dev/null && {
             cp /tmp/db-restore/golfgame.db data/ 2>/dev/null || true
             cp /tmp/db-restore/pga_stats.db data/ 2>/dev/null || true
             cp /tmp/db-restore/*.joblib data/models/ 2>/dev/null || true
             cp /tmp/db-restore/*.json data/models/ 2>/dev/null || true
+            cp /tmp/db-restore/*.html data/output/ 2>/dev/null || true
             echo "[OK] Restored data from release backup"
           } || echo "[INFO] No backup release found, starting fresh"
         env:
@@ -259,6 +261,7 @@ jobs:
             data/golfgame.db
             data/pga_stats.db
             data/models
+            data/output
           key: golfdata-${{ github.run_id }}
 
       - name: Backup data to release
@@ -269,6 +272,9 @@ jobs:
           [ -f data/golfgame.db ] && FILES="$FILES data/golfgame.db"
           [ -f data/pga_stats.db ] && FILES="$FILES data/pga_stats.db"
           for f in data/models/*.joblib data/models/*.json; do
+            [ -f "$f" ] && FILES="$FILES $f"
+          done
+          for f in data/output/*.html; do
             [ -f "$f" ] && FILES="$FILES $f"
           done
 
