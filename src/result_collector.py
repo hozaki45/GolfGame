@@ -97,6 +97,21 @@ def collect_results(
         print("[INFO] No ML predictions found for this tournament")
         print("[INFO] ML predictions are saved when running the full pipeline (run_pipeline.py)")
 
+    # Step 2.5: ゲームスコア比較 (ML vs EGS)
+    print("\n[STEP 2.5] Game score comparison...")
+    try:
+        from src.post_tournament_analyzer import (
+            analyze_tournament,
+            format_game_score_comparison,
+        )
+
+        review_data = analyze_tournament(tid)
+        if review_data:
+            comparison = format_game_score_comparison(review_data)
+            print(comparison)
+    except Exception as e:
+        print(f"[WARN] Game score comparison skipped: {e}")
+
     # Step 3: 蓄積状況表示
     print("\n[STEP 3] Accumulation status...")
     status = get_accumulation_status()
@@ -155,13 +170,20 @@ def collect_all_pending() -> dict:
             collected_tournaments.append(t)
             print(f"  [OK] Results saved for '{t['name']}'")
 
-            # 振り返りレポート生成
+            # 振り返りレポート生成 + ゲームスコア比較出力
             try:
-                from src.post_tournament_analyzer import analyze_tournament
+                from src.post_tournament_analyzer import (
+                    analyze_tournament,
+                    format_game_score_comparison,
+                )
                 from src.review_report import save_review_html
 
                 review_data = analyze_tournament(t["id"])
                 if review_data:
+                    # ゲームスコア比較をコンソール出力
+                    comparison = format_game_score_comparison(review_data)
+                    print(comparison)
+
                     review_path = save_review_html(review_data)
                     print(f"  [OK] Review report: {review_path}")
             except Exception as e:

@@ -809,3 +809,167 @@ def _generate_takeaways(
         )
 
     return takeaways[:6]
+
+
+#-----ゲームスコア比較出力-----
+
+def format_game_score_comparison(review_data: dict) -> str:
+    """ML vs EGS vs 各戦略のゲームスコア比較をフォーマットする。
+
+    Args:
+        review_data: analyze_tournament() の戻り値
+
+    Returns:
+        フォーマット済み文字列 (コンソール出力用)
+    """
+    gs = review_data.get("game_score")
+    if not gs:
+        return "  [INFO] No game score data available"
+
+    tournament = review_data.get("tournament", {})
+    name = tournament.get("name", "Unknown")
+
+    lines: list[str] = []
+    lines.append("")
+    lines.append("=" * 70)
+    lines.append(f"  GAME SCORE COMPARISON: {name}")
+    lines.append("=" * 70)
+
+    field_size = gs.get("field_size", 0)
+    cut_count = gs.get("cut_count", 0)
+    lines.append(f"  Field: {field_size}  Cut: {cut_count}  Made cut: {field_size - cut_count}")
+    lines.append("")
+
+    # --- 戦略別サマリーテーブル ---
+    lines.append("  Strategy        Raw Score  Bonuses  TOTAL  Groups Won")
+    lines.append("  " + "-" * 62)
+
+    strategy_names = {
+        "ml": "ML Pick",
+        "game": "EGS Pick",
+        "odds": "Odds Only",
+        "stats": "Stats Only",
+        "fit": "Course Fit",
+        "optimal": "Optimal*",
+    }
+    strategy_order = ["ml", "game", "odds", "stats", "fit", "optimal"]
+
+    best_total = None
+    best_key = None
+    for key in strategy_order:
+        data = gs.get(key)
+        if not data or not isinstance(data, dict):
+            continue
+        total = data.get("total", 0)
+        if key != "optimal":
+            if best_total is None or total < best_total:
+                best_total = total
+                best_key = key
+
+    for key in strategy_order:
+        data = gs.get(key)
+        if not data or not isinstance(data, dict):
+            continue
+
+        label = strategy_names.get(key, key)
+        total = data.get("total", 0)
+        raw = data.get("raw_sum", 0)
+        bonuses = data.get("bonuses", {}).get("total", 0)
+        groups_won = data.get("groups_won", "-")
+        if key == "optimal":
+            groups_won = "-"
+
+        marker = " <-- BEST" if key == best_key else ""
+        lines.append(
+            f"  {label:<16} {raw:>9}  {'-' + str(bonuses):>7}  {total:>5}{marker}"
+            + (f"  {groups_won}" if groups_won != "-" else "")
+        )
+
+    lines.append("")
+    lines.append(f"  * Optimal = hindsight (picking each group winner)")
+    lines.append("")
+
+    # --- ML vs EGS 詳細比較 ---
+    ml_data = gs.get("ml")
+    egs_data = gs.get("game")
+
+    if ml_data and egs_data and ml_data.get("per_group") and egs_data.get("per_group"):
+        lines.append("  " + "-" * 62)
+        lines.append("  ML vs EGS: Group-by-Group Detail")
+        lines.append("  " + "-" * 62)
+        lines.append(
+            f"  {'G':>3}  {'ML Pick':<20} {'GS':>4}  {'EGS Pick':<20} {'GS':>4}  {'Better':>6}"
+        )
+        lines.append("  " + "-" * 62)
+
+        ml_groups = {pg["group_id"]: pg for pg in ml_data["per_group"]}
+        egs_groups = {pg["group_id"]: pg for pg in egs_data["per_group"]}
+
+        ml_wins = 0
+        egs_wins = 0
+        ties = 0
+
+        all_gids = sorted(set(list(ml_groups.keys()) + list(egs_groups.keys())))
+        for gid in all_gids:
+            ml_g = ml_groups.get(gid)
+            egs_g = egs_groups.get(gid)
+
+            if not ml_g or not egs_g:
+                continue
+
+            # 各グループのピック名とスコア
+            ml_picks_str = ", ".join(p["name"].split()[-1][:12] for p in ml_g["picks"])
+            ml_gs = ml_g["group_total"]
+            egs_picks_str = ", ".join(p["name"].split()[-1][:12] for p in egs_g["picks"])
+            egs_gs = egs_g["group_total"]
+
+            if ml_gs < egs_gs:
+                better = "ML"
+                ml_wins += 1
+            elif egs_gs < ml_gs:
+                better = "EGS"
+                egs_wins += 1
+            else:
+                better = "Tie"
+                ties += 1
+
+            # 同じピックの場合
+            ml_names = set(p["name"] for p in ml_g["picks"])
+            egs_names = set(p["name"] for p in egs_g["picks"])
+            if ml_names == egs_names:
+                better = "Same"
+
+            lines.append(
+                f"  {gid:>3}  {ml_picks_str:<20} {ml_gs:>4}  "
+                f"{egs_picks_str:<20} {egs_gs:>4}  {better:>6}"
+            )
+
+        lines.append("  " + "-" * 62)
+
+        ml_total = ml_data["total"]
+        egs_total = egs_data["total"]
+        diff = ml_total - egs_total
+
+        lines.append(f"  ML  Total: {ml_total} (raw {ml_data['raw_sum']} - bonus {ml_data['bonuses']['total']})")
+        lines.append(f"  EGS Total: {egs_total} (raw {egs_data['raw_sum']} - bonus {egs_data['bonuses']['total']})")
+        lines.append("")
+
+        if diff > 0:
+            lines.append(f"  --> EGS wins by {diff} points")
+        elif diff < 0:
+            lines.append(f"  --> ML wins by {-diff} points")
+        else:
+            lines.append(f"  --> Tied")
+
+        lines.append(f"  Group wins: ML={ml_wins}, EGS={egs_wins}, Tie/Same={ties}")
+
+    # --- ボーナス詳細 ---
+    for strat_key, strat_name in [("ml", "ML"), ("game", "EGS")]:
+        data = gs.get(strat_key)
+        if data and data.get("bonuses", {}).get("details"):
+            lines.append(f"  {strat_name} bonuses: {', '.join(data['bonuses']['details'])}")
+
+    lines.append("")
+    lines.append("=" * 70)
+
+    return "\n".join(lines)
