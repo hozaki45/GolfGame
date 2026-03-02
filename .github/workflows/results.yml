@@ -1,0 +1,103 @@
+name: Post-Tournament Results
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'       # Every Monday 09:00 UTC (18:00 JST)
+  workflow_dispatch:            # Manual trigger
+
+permissions:
+  contents: write              # For creating releases
+
+concurrency:
+  group: "golf-pipeline"
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      # --- DB Restore (cache -> release fallback) ---
+      - name: Restore data from cache
+        uses: actions/cache/restore@v4
+        id: db-cache
+        with:
+          path: |
+            data/golfgame.db
+            data/pga_stats.db
+            data/models
+          key: golfdata-${{ github.run_id }}
+          restore-keys: golfdata-
+
+      - name: Restore data from release backup
+        if: steps.db-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p data/models
+          gh release download db-backup -D /tmp/db-restore/ 2>/dev/null && {
+            cp /tmp/db-restore/golfgame.db data/ 2>/dev/null || true
+            cp /tmp/db-restore/pga_stats.db data/ 2>/dev/null || true
+            cp /tmp/db-restore/*.joblib data/models/ 2>/dev/null || true
+            cp /tmp/db-restore/*.json data/models/ 2>/dev/null || true
+            echo "[OK] Restored data from release backup"
+          } || echo "[INFO] No backup release found, starting fresh"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # --- Minimal config for result collection ---
+      - name: Generate config.yaml
+        run: |
+          cat > config.yaml << 'CONFIGEOF'
+          espn:
+            base_url: "https://site.api.espn.com/apis/site/v2/sports/golf/pga"
+            scoreboard_endpoint: "/scoreboard"
+            timeout: 30
+          CONFIGEOF
+
+      # --- Collect results ---
+      - name: Collect tournament results
+        run: uv run python -m src.result_collector
+
+      # --- Save data (cache + release backup) ---
+      - name: Save data to cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            data/golfgame.db
+            data/pga_stats.db
+            data/models
+          key: golfdata-${{ github.run_id }}
+
+      - name: Backup data to release
+        if: always()
+        run: |
+          FILES=""
+          [ -f data/golfgame.db ] && FILES="$FILES data/golfgame.db"
+          [ -f data/pga_stats.db ] && FILES="$FILES data/pga_stats.db"
+          for f in data/models/*.joblib data/models/*.json; do
+            [ -f "$f" ] && FILES="$FILES $f"
+          done
+
+          if [ -n "$FILES" ]; then
+            gh release delete db-backup --yes 2>/dev/null || true
+            gh release create db-backup $FILES \
+              --title "DB Backup" \
+              --notes "Results collected $(date -u +%Y-%m-%d)"
+            echo "[OK] Backup saved to release"
+          else
+            echo "[WARN] No data files to backup"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}

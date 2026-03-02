@@ -1,0 +1,42 @@
+{
+  "model_version": "proxy_v1",
+  "model_type": "GradientBoostingRegressor",
+  "n_samples": 20921,
+  "n_features": 6,
+  "features_used": [
+    "sg_approach",
+    "sg_off_tee",
+    "sg_tee_to_green",
+    "gir_pct",
+    "scrambling_pct",
+    "scoring_average"
+  ],
+  "r2_cv_mean": 0.17042043982277377,
+  "r2_cv_std": 0.03083857086451494,
+  "mae_cv_mean": 0.8846435863917306,
+  "feature_importance": {
+    "sg_approach": 0.03376881193587298,
+    "sg_off_tee": 0.034988116584562336,
+    "sg_tee_to_green": 0.035357072261268094,
+    "gir_pct": 0.07135303818640057,
+    "scrambling_pct": 0.027955765208742576,
+    "scoring_average": 0.7965771958231534
+  },
+  "trained_at": "2026-02-23T09:35:27.702139",
+  "scaler_mean": [
+    0.10152573968739544,
+    0.07147081879451268,
+    0.21208307442282873,
+    66.95653697242005,
+    59.67100998996225,
+    70.80980727498685
+  ],
+  "scaler_scale": [
+    0.35787722107909437,
+    0.33514111214701603,
+    0.6048176427934352,
+    2.4858388311595805,
+    3.247044037880512,
+    0.6730926695036369
+  ]
+}

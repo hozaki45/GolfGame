@@ -257,8 +257,101 @@ class OddsScraper:
         return filepath
 
 
+def merge_odds(primary: TournamentOdds, secondary: TournamentOdds) -> TournamentOdds:
+    """Merge odds from two sources.
+
+    Players are matched by name. Bookmakers from secondary are added
+    to primary players' odds_by_book. If the same bookmaker exists in both,
+    secondary takes precedence (API data is typically more accurate).
+
+    Args:
+        primary: Primary odds data (e.g. Vegas Insider).
+        secondary: Secondary odds data (e.g. The Odds API).
+
+    Returns:
+        Merged TournamentOdds.
+    """
+    from fuzzywuzzy import fuzz
+
+    # Build lookup for secondary players
+    sec_lookup: dict[str, PlayerOdds] = {}
+    for p in secondary.players:
+        sec_lookup[p.name.lower().strip()] = p
+
+    merged_players = []
+    matched_sec = set()
+
+    for p in primary.players:
+        # Try exact match
+        p_lower = p.name.lower().strip()
+        sec_player = sec_lookup.get(p_lower)
+
+        # Try fuzzy match
+        if not sec_player:
+            best_score = 0
+            best_match = None
+            for sec_name, sec_p in sec_lookup.items():
+                score = max(
+                    fuzz.ratio(p_lower, sec_name),
+                    fuzz.token_sort_ratio(p_lower, sec_name),
+                )
+                if score > best_score:
+                    best_score = score
+                    best_match = sec_p
+            if best_match and best_score >= 80:
+                sec_player = best_match
+
+        # Merge odds_by_book
+        merged_book = dict(p.odds_by_book)
+        if sec_player:
+            matched_sec.add(sec_player.name.lower().strip())
+            for book, odds_val in sec_player.odds_by_book.items():
+                if book not in merged_book:
+                    merged_book[book] = odds_val
+
+        # Recalculate best odds
+        if merged_book:
+            best_book = min(merged_book, key=lambda k: merged_book[k])
+            best_odds = merged_book[best_book]
+        else:
+            best_book = p.best_book
+            best_odds = p.best_odds
+
+        merged_players.append(PlayerOdds(
+            name=p.name,
+            odds_by_book=merged_book,
+            best_odds=best_odds,
+            best_book=best_book,
+            decimal_odds=american_to_decimal(best_odds),
+            implied_probability=american_to_implied_prob(best_odds),
+        ))
+
+    # Add unmatched secondary players
+    for sec_p in secondary.players:
+        if sec_p.name.lower().strip() not in matched_sec:
+            merged_players.append(sec_p)
+
+    # Merge bookmaker lists (deduplicated, ordered)
+    all_books = list(primary.bookmakers)
+    for b in secondary.bookmakers:
+        if b not in all_books:
+            all_books.append(b)
+
+    print(f"[INFO] Merged: {len(primary.players)} (Vegas Insider) + {len(secondary.players)} (The Odds API) = {len(merged_players)} players, {len(all_books)} bookmakers")
+
+    return TournamentOdds(
+        tournament_name=primary.tournament_name,
+        source=f"{primary.source} + {secondary.source}",
+        bookmakers=all_books,
+        players=merged_players,
+        fetched_at=datetime.now().isoformat(),
+    )
+
+
 def run(config: dict | None = None, tournament_name: str = "") -> TournamentOdds | None:
     """Pipeline entry point for odds scraper.
+
+    Fetches from Vegas Insider and optionally merges with The Odds API.
 
     Args:
         config: Optional config dict.
@@ -271,6 +364,20 @@ def run(config: dict | None = None, tournament_name: str = "") -> TournamentOdds
     result = scraper.fetch_tournament_odds(tournament_name)
     if result:
         scraper.save_raw_data(result)
+
+    # Try to merge with The Odds API
+    try:
+        from src.theodds_scraper import TheOddsScraper
+        theo_scraper = TheOddsScraper()
+        if theo_scraper.enabled and theo_scraper.api_key:
+            theo_result = theo_scraper.run(tournament_name)
+            if theo_result and result:
+                result = merge_odds(result, theo_result)
+            elif theo_result and not result:
+                result = theo_result
+    except Exception as e:
+        print(f"[WARN] The Odds API integration skipped: {e}")
+
     return result
 
 

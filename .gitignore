@@ -5,7 +5,13 @@ __pycache__/
 data/raw/
 data/processed/
 data/output/
+data/*.db
+data/*.json
 *.egg-info/
 dist/
 build/
 .env
+config.yaml
+_site/
+*.db-wal
+*.db-shm

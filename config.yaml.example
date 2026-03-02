@@ -1,0 +1,44 @@
+# GolfGame Configuration
+# Copy this file to config.yaml and fill in your credentials.
+
+# === ESPN API ===
+espn:
+  base_url: "https://site.api.espn.com/apis/site/v2/sports/golf/pga"
+  scoreboard_endpoint: "/scoreboard"
+  timeout: 30
+
+# === SkyBet (legacy) ===
+skybet:
+  base_url: "https://m.skybet.com/golf"
+  smp_api: "https://smp.skybet.com/www/sports/fixedodds/readonly/v1"
+  timeout: 30
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# === The Odds API ===
+theodds_api:
+  api_key: "YOUR_API_KEY"  # Get free key at https://the-odds-api.com
+  regions: "us,us2,uk,eu,au"
+  odds_format: "american"
+  enabled: true
+
+# === Player Matching ===
+matching:
+  fuzzy_threshold: 85
+  manual_overrides: {}
+
+# === Analysis ===
+analysis:
+  min_edge_percent: 2.0
+  kelly_fraction: 0.25
+  bankroll: 1000.0
+
+# === Picks Site (jflynn87.pythonanywhere.com) ===
+picks_site:
+  username: "YOUR_USERNAME"
+  password: "YOUR_PASSWORD"
+  timeout: 30
+
+# === Output ===
+output:
+  data_dir: "data"
+  format: "csv"

@@ -23,6 +23,7 @@ class PlayerLeaderboard:
     round_scores: list[str]  # e.g. ["-7", "-5", "-4", "-3"]
     country: str
     athlete_id: str
+    status: str = ""    # e.g. "STATUS_FINISH", "STATUS_CUT", "STATUS_WD", "STATUS_DQ"
 
 
 @dataclass
@@ -109,6 +110,7 @@ class ESPNScraper:
 
             athlete_id = comp.get("id", "")
             position = comp.get("order", i + 1)
+            status = comp.get("status", {}).get("type", {}).get("name", "")
 
             players.append(PlayerLeaderboard(
                 name=name,
@@ -117,6 +119,7 @@ class ESPNScraper:
                 round_scores=round_scores,
                 country=country,
                 athlete_id=athlete_id,
+                status=status,
             ))
 
         print(f"[INFO] Parsed {len(players)} players for {tournament_name}")

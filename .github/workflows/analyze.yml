@@ -1,0 +1,222 @@
+name: Golf Betting Analysis
+
+on:
+  schedule:
+    - cron: '0 9 * * 2'       # Every Tuesday 09:00 UTC (18:00 JST)
+  workflow_dispatch:            # Manual trigger
+
+permissions:
+  contents: write              # For creating releases
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "golf-pipeline"
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      # --- DB Restore (cache -> release fallback) ---
+      - name: Restore data from cache
+        uses: actions/cache/restore@v4
+        id: db-cache
+        with:
+          path: |
+            data/golfgame.db
+            data/pga_stats.db
+            data/models
+          key: golfdata-${{ github.run_id }}
+          restore-keys: golfdata-
+
+      - name: Restore data from release backup
+        if: steps.db-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p data/models
+          gh release download db-backup -D /tmp/db-restore/ 2>/dev/null && {
+            cp /tmp/db-restore/golfgame.db data/ 2>/dev/null || true
+            cp /tmp/db-restore/pga_stats.db data/ 2>/dev/null || true
+            cp /tmp/db-restore/*.joblib data/models/ 2>/dev/null || true
+            cp /tmp/db-restore/*.json data/models/ 2>/dev/null || true
+            echo "[OK] Restored data from release backup"
+          } || echo "[INFO] No backup release found, starting fresh"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # --- Generate config.yaml from secrets ---
+      - name: Generate config.yaml
+        run: |
+          cat > config.yaml << 'CONFIGEOF'
+          espn:
+            base_url: "https://site.api.espn.com/apis/site/v2/sports/golf/pga"
+            scoreboard_endpoint: "/scoreboard"
+            timeout: 30
+
+          theodds_api:
+            api_key: "${THEODDS_API_KEY}"
+            regions: "us,us2,uk,eu,au"
+            odds_format: "american"
+            enabled: ${THEODDS_ENABLED}
+
+          stats_source:
+            enabled: true
+            provider: "pgatour_graphql"
+            graphql:
+              default_year: 2025
+              rate_limit_seconds: 1
+              timeout: 30
+              stats:
+                - id: "02568"
+                  name: "sg_approach"
+                  weight: 0.30
+                - id: "02567"
+                  name: "sg_off_tee"
+                  weight: 0.25
+                - id: "02674"
+                  name: "sg_tee_to_green"
+                  weight: 0.20
+                - id: "103"
+                  name: "gir_pct"
+                  weight: 0.10
+                - id: "120"
+                  name: "scoring_average"
+                  weight: 0.08
+                - id: "130"
+                  name: "scrambling_pct"
+                  weight: 0.07
+            prediction:
+              min_stats_required: 3
+              confidence_threshold_high: 4
+              confidence_threshold_medium: 2
+
+          matching:
+            fuzzy_threshold: 85
+            manual_overrides: {}
+
+          analysis:
+            min_edge_percent: 2.0
+            kelly_fraction: 0.25
+            bankroll: 1000.0
+
+          picks_site:
+            username: "${PICKS_USERNAME}"
+            password: "${PICKS_PASSWORD}"
+            timeout: 30
+
+          course_fit:
+            enabled: true
+            mode: "recent"
+            n_years: 3
+            tournament_num: ""
+
+          ml_prediction:
+            enabled: true
+            model_dir: "data/models"
+            stats_model:
+              type: "gradient_boosting"
+              n_estimators: 100
+              max_depth: 4
+              min_samples_leaf: 10
+            default_weights:
+              odds: 0.40
+              stats: 0.30
+              course_fit: 0.15
+              crowd: 0.15
+            min_group_results_for_full_model: 50
+            game_optimization:
+              enabled: true
+              use_ml_models: true
+              cut_rate_default: 0.43
+              wgr_cut_table:
+                10: 0.05
+                30: 0.10
+                50: 0.15
+                100: 0.22
+                150: 0.30
+                200: 0.38
+                999: 0.50
+
+          output:
+            data_dir: "data"
+            format: "csv"
+          CONFIGEOF
+
+          # Replace placeholders with actual secrets
+          sed -i "s|\${PICKS_USERNAME}|${{ secrets.PICKS_USERNAME }}|g" config.yaml
+          sed -i "s|\${PICKS_PASSWORD}|${{ secrets.PICKS_PASSWORD }}|g" config.yaml
+          sed -i "s|\${THEODDS_API_KEY}|${{ secrets.THEODDS_API_KEY }}|g" config.yaml
+
+          # Enable The Odds API only if key is provided
+          if [ -n "${{ secrets.THEODDS_API_KEY }}" ]; then
+            sed -i "s|\${THEODDS_ENABLED}|true|g" config.yaml
+          else
+            sed -i "s|\${THEODDS_ENABLED}|false|g" config.yaml
+          fi
+
+      # --- Run pipeline ---
+      - name: Run analysis pipeline
+        run: uv run python run_pipeline.py
+
+      # --- Save data (cache + release backup) ---
+      - name: Save data to cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            data/golfgame.db
+            data/pga_stats.db
+            data/models
+          key: golfdata-${{ github.run_id }}
+
+      - name: Backup data to release
+        if: always()
+        run: |
+          # Collect files to upload
+          FILES=""
+          [ -f data/golfgame.db ] && FILES="$FILES data/golfgame.db"
+          [ -f data/pga_stats.db ] && FILES="$FILES data/pga_stats.db"
+          for f in data/models/*.joblib data/models/*.json; do
+            [ -f "$f" ] && FILES="$FILES $f"
+          done
+
+          if [ -n "$FILES" ]; then
+            gh release delete db-backup --yes 2>/dev/null || true
+            gh release create db-backup $FILES \
+              --title "DB Backup" \
+              --notes "Auto-updated $(date -u +%Y-%m-%d) by analyze workflow"
+            echo "[OK] Backup saved to release"
+          else
+            echo "[WARN] No data files to backup"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # --- Deploy to GitHub Pages ---
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: data/output
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
