@@ -69,6 +69,49 @@ jobs:
       - name: Collect tournament results
         run: uv run python -m src.result_collector
 
+      # --- DB Health Check ---
+      - name: DB health check
+        if: always()
+        run: |
+          uv run python -c "
+          import sqlite3, os
+          from datetime import datetime
+
+          print('=' * 60)
+          print('  DB HEALTH CHECK (results)')
+          print('=' * 60)
+
+          gdb = 'data/golfgame.db'
+          if os.path.exists(gdb):
+              size_mb = os.path.getsize(gdb) / 1024 / 1024
+              conn = sqlite3.connect(gdb)
+              conn.row_factory = sqlite3.Row
+              t_count = conn.execute('SELECT COUNT(*) FROM tournaments').fetchone()[0]
+              t_results = conn.execute(\"SELECT COUNT(*) FROM tournaments WHERE status='results_saved'\").fetchone()[0]
+              t_odds = conn.execute(\"SELECT COUNT(*) FROM tournaments WHERE status='odds_saved'\").fetchone()[0]
+              r_count = conn.execute('SELECT COUNT(*) FROM results').fetchone()[0]
+              latest = conn.execute('SELECT name, end_date, status FROM tournaments ORDER BY id DESC LIMIT 1').fetchone()
+
+              # Pending collection check
+              from datetime import date
+              pending = conn.execute(
+                  \"SELECT COUNT(*) FROM tournaments WHERE status='odds_saved' AND end_date IS NOT NULL AND end_date < ?\",
+                  (date.today().isoformat(),)
+              ).fetchone()[0]
+              conn.close()
+
+              print(f'  golfgame.db: {size_mb:.1f} MB')
+              print(f'    tournaments:  {t_count} (results={t_results}, odds={t_odds})')
+              print(f'    results:      {r_count}')
+              print(f'    pending:      {pending} tournament(s) awaiting collection')
+              if latest:
+                  print(f'    latest:       {latest[\"name\"]} ({latest[\"end_date\"]}) [{latest[\"status\"]}]')
+          else:
+              print('  golfgame.db: NOT FOUND')
+
+          print('=' * 60)
+          "
+
       # --- Save data (cache + release backup) ---
       - name: Save data to cache
         uses: actions/cache/save@v4
