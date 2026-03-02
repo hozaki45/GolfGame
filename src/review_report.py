@@ -25,15 +25,19 @@ def generate_review_html(review_data: dict) -> str:
     chart_json = json.dumps(chart_data, ensure_ascii=False)
     chart_json = chart_json.replace("</", "<\\/")
 
+    gs = review_data.get("game_score", {})
+    has_game_strategy = bool(gs.get("ml", {}).get("per_group"))
+
     parts = [
         _head(t["name"]),
         "<body>",
         '<div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div>',
         _header(review_data),
-        _nav(),
+        _nav(has_game_strategy),
         '<div class="container">',
         _section_overview(review_data),
         _section_group_results(review_data),
+        _section_game_strategy(review_data) if has_game_strategy else "",
         _section_insights(review_data),
         "</div>",
         _footer(),
@@ -235,6 +239,8 @@ body::before {{
 }}
 .result-badge.correct {{ background:rgba(34,197,94,0.15); color:var(--correct); }}
 .result-badge.wrong {{ background:rgba(239,68,68,0.15); color:var(--wrong); }}
+.result-badge.egs-win {{ background:rgba(245,158,11,0.15); color:var(--accent3); }}
+.result-badge.same {{ background:rgba(255,255,255,0.06); color:var(--text3); }}
 .grp-badge {{ font-size:0.7em; font-weight:700; color:var(--text3); letter-spacing:0.08em; text-transform:uppercase; }}
 
 .result-picks {{
@@ -336,13 +342,17 @@ def _header(review_data: dict) -> str:
 </div>"""
 
 
-def _nav() -> str:
-    """3タブナビゲーション。"""
-    return """<div class="nav">
+def _nav(has_game_strategy: bool = False) -> str:
+    """タブナビゲーション。"""
+    tabs = """<div class="nav">
 <button class="tab active" onclick="showSection('overview')">Overview</button>
-<button class="tab" onclick="showSection('groups')">Group Results</button>
+<button class="tab" onclick="showSection('groups')">Group Results</button>"""
+    if has_game_strategy:
+        tabs += '\n<button class="tab" onclick="showSection(\'gamestrategy\')">Game Strategy</button>'
+    tabs += """
 <button class="tab" onclick="showSection('insights')">Insights</button>
 </div>"""
+    return tabs
 
 
 def _section_overview(review_data: dict) -> str:
@@ -387,75 +397,34 @@ def _section_overview(review_data: dict) -> str:
 <div class="chart-wrap"><canvas id="chart-signal"></canvas></div>
 </div>"""
 
-    # Game Score セクション
+    # Game Score サマリー (詳細は Game Strategy タブ)
     gs = review_data.get("game_score")
     if gs:
         ml_gs = gs.get("ml", {})
+        egs_gs = gs.get("game", {})
         opt_gs = gs.get("optimal", {})
-        best_st = gs.get("best_strategy", "ml")
 
         if ml_gs.get("per_group"):
-            html += '<div class="chart-container reveal">'
-            html += '<h3>Game Score (Lower = Better)</h3>'
-
-            # メインスコアカード
-            ml_bonuses = ml_gs.get("bonuses", {})
-            html += '<div class="stat-grid" style="margin-bottom:16px;">'
+            html += '<div class="stat-grid">'
             html += f"""<div class="stat-card reveal">
 <div class="label">ML Game Score</div>
 <div class="big" style="color:var(--accent);">{ml_gs['total']}</div>
-<div class="detail">Raw={ml_gs['raw_sum']} - Bonus={ml_bonuses.get('total', 0)}</div>
+<div class="detail">Lower = Better</div>
 </div>"""
 
-            odds_gs = gs.get("odds", {})
-            if odds_gs.get("per_group"):
+            if egs_gs.get("per_group"):
                 html += f"""<div class="stat-card reveal">
-<div class="label">Odds Score</div>
-<div class="big" style="color:var(--accent2);">{odds_gs['total']}</div>
-<div class="detail">Raw={odds_gs['raw_sum']} - Bonus={odds_gs.get('bonuses', {}).get('total', 0)}</div>
+<div class="label">EGS Game Score</div>
+<div class="big" style="color:var(--accent3);">{egs_gs['total']}</div>
+<div class="detail">Lower = Better</div>
 </div>"""
 
             html += f"""<div class="stat-card reveal">
 <div class="label">Optimal</div>
 <div class="big" style="color:var(--text3);">{opt_gs['total']}</div>
-<div class="detail">Raw={opt_gs['raw_sum']} - Bonus={opt_gs.get('bonuses', {}).get('total', 0)}</div>
+<div class="detail">Hindsight best</div>
 </div>"""
             html += "</div>"
-
-            # フィールド情報
-            field_size = gs.get("field_size", 0)
-            cut_count = gs.get("cut_count", 0)
-            if field_size:
-                html += f'<div style="font-size:0.75em;color:var(--text3);margin-bottom:12px;">'
-                html += f'Field: {field_size} players | Cut: {cut_count} made | '
-                html += f'Bonus breakdown: '
-                for d in ml_bonuses.get("details", []):
-                    html += f'{_esc(d)} '
-                html += '</div>'
-
-            # 戦略比較チャート
-            html += '<div class="chart-wrap"><canvas id="chart-position"></canvas></div>'
-            html += "</div>"
-
-            # グループ別Game Score詳細テーブル
-            html += '<div class="chart-container reveal">'
-            html += '<h3>Game Score by Group</h3>'
-            html += '<table class="result-table"><thead><tr>'
-            html += '<th>Group</th><th>Pick</th><th>WGR</th><th>HC</th><th>ESPN</th><th>CUT</th><th>Game</th>'
-            html += '</tr></thead><tbody>'
-            for pg in ml_gs["per_group"]:
-                for p in pg["picks"]:
-                    won_cls = ' class="winner"' if p.get("won") else ""
-                    cut_mark = "CUT" if p["is_cut"] else ""
-                    espn_pos = p["espn_pos"] if p["espn_pos"] is not None else "-"
-                    html += f'<tr{won_cls}><td>G{pg["group_id"]}</td>'
-                    html += f'<td>{_esc(p["name"])}</td>'
-                    html += f'<td>{p["wgr"]}</td>'
-                    html += f'<td>{p["handicap"]}</td>'
-                    html += f'<td>{espn_pos}</td>'
-                    html += f'<td>{cut_mark}</td>'
-                    html += f'<td>{p["game_score"]}</td></tr>'
-            html += '</tbody></table></div>'
 
     html += "</div>"
     return html
@@ -527,6 +496,195 @@ def _section_group_results(review_data: dict) -> str:
         html += "</div>"
 
     html += "</div></div>"
+    return html
+
+
+def _section_game_strategy(review_data: dict) -> str:
+    """Tab 3: Game Strategy — ML vs EGS 詳細比較。"""
+    gs = review_data.get("game_score", {})
+    if not gs:
+        return ""
+
+    html = '<div id="sec-gamestrategy" class="section">'
+
+    # --- 戦略別スコアカード ---
+    html += '<div class="stat-grid">'
+    strategy_cards = [
+        ("ml", "ML Pick", "--accent"),
+        ("game", "EGS Pick", "--accent3"),
+        ("odds", "Odds Only", "--accent2"),
+        ("optimal", "Optimal", "--text3"),
+    ]
+    for key, label, color in strategy_cards:
+        data = gs.get(key, {})
+        if not isinstance(data, dict) or data.get("total") is None:
+            continue
+        bonuses = data.get("bonuses", {}).get("total", 0)
+        raw = data.get("raw_sum", 0)
+        html += f"""<div class="stat-card reveal">
+<div class="label">{label}</div>
+<div class="big" style="color:var({color});">{data['total']}</div>
+<div class="detail">Raw {raw} - Bonus {bonuses}</div>
+</div>"""
+    html += "</div>"
+
+    # --- 戦略比較チャート ---
+    html += """<div class="chart-container reveal">
+<h3>Strategy Score Comparison (Lower = Better)</h3>
+<div class="chart-wrap"><canvas id="chart-position"></canvas></div>
+</div>"""
+
+    # --- ML vs EGS グループ別詳細 ---
+    ml_data = gs.get("ml", {})
+    egs_data = gs.get("game", {})
+
+    if ml_data.get("per_group") and egs_data.get("per_group"):
+        ml_groups = {pg["group_id"]: pg for pg in ml_data["per_group"]}
+        egs_groups = {pg["group_id"]: pg for pg in egs_data["per_group"]}
+        all_gids = sorted(set(list(ml_groups.keys()) + list(egs_groups.keys())))
+
+        ml_total = ml_data.get("total", 0)
+        egs_total = egs_data.get("total", 0)
+        diff = ml_total - egs_total
+
+        # ヘッダー: 勝敗サマリー
+        if diff < 0:
+            winner_text = f'ML wins by {abs(diff)} points'
+            winner_color = "var(--accent)"
+        elif diff > 0:
+            winner_text = f'EGS wins by {abs(diff)} points'
+            winner_color = "var(--accent3)"
+        else:
+            winner_text = "Tied!"
+            winner_color = "var(--text2)"
+
+        html += '<div class="chart-container reveal">'
+        html += '<h3>ML vs EGS: Group-by-Group Detail</h3>'
+        html += f'<div style="font-size:0.85em;color:{winner_color};font-weight:700;margin-bottom:12px;">'
+        html += f'Result: {winner_text} (ML={ml_total}, EGS={egs_total})'
+        html += '</div>'
+
+        # グループごとのカード
+        html += '<div class="bento">'
+        for gid in all_gids:
+            ml_g = ml_groups.get(gid)
+            egs_g = egs_groups.get(gid)
+            if not ml_g or not egs_g:
+                continue
+
+            ml_picks = ml_g.get("picks", [])
+            egs_picks = egs_g.get("picks", [])
+            ml_score = sum(p["game_score"] for p in ml_picks)
+            egs_score = sum(p["game_score"] for p in egs_picks)
+
+            # 同じ選手を選んだか判定
+            ml_names = {p["name"] for p in ml_picks}
+            egs_names = {p["name"] for p in egs_picks}
+            same_pick = ml_names == egs_names
+
+            if same_pick:
+                card_border = "var(--text3)"
+                badge_cls = "same"
+                badge_text = "SAME PICK"
+            elif ml_score < egs_score:
+                card_border = "rgba(34,197,94,0.35)"
+                badge_cls = "correct"
+                badge_text = "ML WINS"
+            elif ml_score > egs_score:
+                card_border = "rgba(245,158,11,0.35)"
+                badge_cls = "egs-win"
+                badge_text = "EGS WINS"
+            else:
+                card_border = "var(--border)"
+                badge_cls = "same"
+                badge_text = "TIE"
+
+            html += f'<div class="result-card reveal" style="border-color:{card_border};">'
+            html += f'<div class="result-hdr">'
+            html += f'<span class="grp-badge">Group {gid}</span>'
+            html += f'<span class="result-badge {badge_cls}">{badge_text}</span>'
+            html += '</div>'
+
+            # ML picks テーブル
+            html += '<table class="result-table">'
+            html += '<thead><tr><th>Strategy</th><th>Player</th><th>WGR</th><th>HC</th>'
+            html += '<th>ESPN</th><th>CUT</th><th>Score</th></tr></thead>'
+            html += '<tbody>'
+
+            for p in ml_picks:
+                espn = p["espn_pos"] if p["espn_pos"] is not None else "-"
+                cut = "CUT" if p["is_cut"] else ""
+                won_cls = ' class="winner"' if p.get("won") else ""
+                html += f'<tr{won_cls}><td style="color:var(--accent);font-weight:600;">ML</td>'
+                html += f'<td>{_esc(p["name"])}</td>'
+                html += f'<td>{p["wgr"]}</td><td>{p["handicap"]}</td>'
+                html += f'<td>{espn}</td><td>{cut}</td><td>{p["game_score"]}</td></tr>'
+
+            for p in egs_picks:
+                if p["name"] in ml_names:
+                    continue  # 同じ選手は重複表示しない
+                espn = p["espn_pos"] if p["espn_pos"] is not None else "-"
+                cut = "CUT" if p["is_cut"] else ""
+                won_cls = ' class="winner"' if p.get("won") else ""
+                html += f'<tr{won_cls}><td style="color:var(--accent3);font-weight:600;">EGS</td>'
+                html += f'<td>{_esc(p["name"])}</td>'
+                html += f'<td>{p["wgr"]}</td><td>{p["handicap"]}</td>'
+                html += f'<td>{espn}</td><td>{cut}</td><td>{p["game_score"]}</td></tr>'
+
+            html += '</tbody></table>'
+
+            # グループスコアサマリー
+            html += '<div style="padding:8px 12px;font-size:0.75em;color:var(--text3);display:flex;justify-content:space-between;">'
+            html += f'<span>ML: {ml_score}</span>'
+            if not same_pick:
+                html += f'<span>EGS: {egs_score}</span>'
+                delta = ml_score - egs_score
+                if delta < 0:
+                    html += f'<span class="delta-up">ML +{abs(delta)}</span>'
+                elif delta > 0:
+                    html += f'<span class="delta-down">EGS +{abs(delta)}</span>'
+                else:
+                    html += '<span class="delta-same">=</span>'
+            html += '</div>'
+
+            html += '</div>'  # result-card
+
+        html += '</div>'  # bento
+        html += '</div>'  # chart-container
+
+    elif ml_data.get("per_group"):
+        # EGSデータなし → ML only テーブル
+        html += '<div class="chart-container reveal">'
+        html += '<h3>Game Score by Group (ML Picks)</h3>'
+        html += '<div style="font-size:0.78em;color:var(--text3);margin-bottom:8px;">'
+        html += 'EGS data not available for this tournament</div>'
+        html += '<table class="result-table"><thead><tr>'
+        html += '<th>Group</th><th>Pick</th><th>WGR</th><th>HC</th><th>ESPN</th><th>CUT</th><th>Game</th>'
+        html += '</tr></thead><tbody>'
+        for pg in ml_data["per_group"]:
+            for p in pg["picks"]:
+                won_cls = ' class="winner"' if p.get("won") else ""
+                cut_mark = "CUT" if p["is_cut"] else ""
+                espn_pos = p["espn_pos"] if p["espn_pos"] is not None else "-"
+                html += f'<tr{won_cls}><td>G{pg["group_id"]}</td>'
+                html += f'<td>{_esc(p["name"])}</td>'
+                html += f'<td>{p["wgr"]}</td><td>{p["handicap"]}</td>'
+                html += f'<td>{espn_pos}</td><td>{cut_mark}</td>'
+                html += f'<td>{p["game_score"]}</td></tr>'
+        html += '</tbody></table></div>'
+
+    # --- フィールド情報 ---
+    field_size = gs.get("field_size", 0)
+    cut_count = gs.get("cut_count", 0)
+    if field_size:
+        html += f'<div style="font-size:0.72em;color:var(--text3);margin-top:8px;padding:0 4px;">'
+        html += f'Field: {field_size} | Cut: {cut_count} made | '
+        ml_bonuses = ml_data.get("bonuses", {})
+        for d in ml_bonuses.get("details", []):
+            html += f'{_esc(d)} '
+        html += '</div>'
+
+    html += "</div>"
     return html
 
 
@@ -655,9 +813,10 @@ def _build_chart_data(review_data: dict) -> dict:
     pos_colors = []
     pos_map = [
         ("ml", "ML", "#22c55e"),
+        ("game", "EGS", "#f59e0b"),
         ("odds", "Odds", "#3b82f6"),
-        ("stats", "Stats", "#f59e0b"),
-        ("fit", "Fit", "#a78bfa"),
+        ("stats", "Stats", "#a78bfa"),
+        ("fit", "Fit", "#8b5cf6"),
         ("optimal", "Optimal", "#52525b"),
     ]
     for key, label, color in pos_map:
