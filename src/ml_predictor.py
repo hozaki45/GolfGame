@@ -643,6 +643,16 @@ def run_ml_prediction(
           f"(model={model_version}, weights=odds:{weights.get('odds', 0.45)}/"
           f"stats:{weights.get('stats', 0.35)}/fit:{weights.get('course_fit', 0.20)})")
 
+    # GroupPlayer に ML スコアを付与（EGS 最適化の前に必要）
+    for gid_ml, players_ml in groups.items():
+        for p_ml in players_ml:
+            pred = predictions.get(p_ml.name)
+            if pred:
+                p_ml.ml_score = pred.ml_score
+                p_ml.ml_rank_in_group = pred.ml_rank_in_group
+                p_ml.ml_confidence = pred.confidence
+                p_ml.ml_model_version = pred.model_version
+
     # Game Score Optimization (EGS)
     egs_result = None
     game_cfg = config.get("game_optimization", {}) if config else {}

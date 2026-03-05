@@ -218,16 +218,8 @@ def main() -> int:
                 )
 
                 if ml_result and ml_result.get("predictions"):
-                    # GroupPlayerにMLスコアを付与
-                    predictions = ml_result["predictions"]
-                    for gid, players in result.groups.items():
-                        for player in players:
-                            pred = predictions.get(player.name)
-                            if pred:
-                                player.ml_score = pred.ml_score
-                                player.ml_rank_in_group = pred.ml_rank_in_group
-                                player.ml_confidence = pred.confidence
-                                player.ml_model_version = pred.model_version
+                    # NOTE: GroupPlayerへのMLスコア付与は run_ml_prediction() 内で
+                    # EGS最適化前に実施済み
 
                     # テキストレポート出力
                     report = format_ml_report(result.groups, ml_result)
