@@ -81,6 +81,22 @@ jobs:
             echo "[INFO] No pga_stats.db found, skipping EGS training"
           fi
 
+      # --- Generate training history report ---
+      - name: Generate EGS training history report
+        run: |
+          uv run python -c "
+          from src.egs_training_report import generate_training_report
+          generate_training_report()
+          " || echo "[WARN] Training report generation failed (non-critical)"
+
+      # --- Regenerate portal page ---
+      - name: Update portal page
+        run: |
+          uv run python -c "
+          from src.portal import generate_portal
+          generate_portal()
+          " || echo "[WARN] Portal update failed (non-critical)"
+
       # --- DB Health Check ---
       - name: DB health check
         if: always()

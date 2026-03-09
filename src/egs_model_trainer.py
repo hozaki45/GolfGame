@@ -37,6 +37,7 @@ MODEL_DIR = Path("data/models")
 CUT_MODEL_PATH = MODEL_DIR / "egs_cut_classifier.joblib"
 POS_MODEL_PATH = MODEL_DIR / "egs_position_regressor.joblib"
 EGS_METADATA_PATH = MODEL_DIR / "egs_model_metadata.json"
+EGS_HISTORY_PATH = MODEL_DIR / "egs_training_history.json"
 
 EGS_FEATURES = [
     # Core SG stats (6)
@@ -384,6 +385,25 @@ class EGSModelTrainer:
         with open(EGS_METADATA_PATH, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
         print(f"[OK] Metadata saved: {EGS_METADATA_PATH}")
+
+        # Append to training history
+        self._append_history(metadata)
+
+    def _append_history(self, metadata: dict) -> None:
+        """訓練履歴をJSONファイルに追記。"""
+        history: list[dict] = []
+        if EGS_HISTORY_PATH.exists():
+            try:
+                with open(EGS_HISTORY_PATH, encoding="utf-8") as f:
+                    history = json.load(f)
+            except (json.JSONDecodeError, ValueError):
+                history = []
+
+        history.append(metadata)
+
+        with open(EGS_HISTORY_PATH, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2, ensure_ascii=False)
+        print(f"[OK] Training history updated: {EGS_HISTORY_PATH} ({len(history)} entries)")
 
     @staticmethod
     def print_info() -> None:
