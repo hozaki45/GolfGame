@@ -71,6 +71,16 @@ jobs:
       - name: Collect tournament results
         run: uv run python -m src.result_collector
 
+      # --- Retrain EGS models with latest results ---
+      - name: Retrain EGS models
+        run: |
+          if [ -f data/pga_stats.db ]; then
+            echo "[INFO] Retraining EGS models with latest data..."
+            uv run python -m src.egs_model_trainer && echo "[OK] EGS models retrained" || echo "[WARN] EGS training failed (non-critical)"
+          else
+            echo "[INFO] No pga_stats.db found, skipping EGS training"
+          fi
+
       # --- DB Health Check ---
       - name: DB health check
         if: always()
