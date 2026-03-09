@@ -97,18 +97,22 @@ def collect_results(
         print("[INFO] No ML predictions found for this tournament")
         print("[INFO] ML predictions are saved when running the full pipeline (run_pipeline.py)")
 
-    # Step 2.5: ゲームスコア比較 (ML vs EGS)
+    # Step 2.5: ゲームスコア比較 (ML vs EGS) + レビューHTML生成
     print("\n[STEP 2.5] Game score comparison...")
     try:
         from src.post_tournament_analyzer import (
             analyze_tournament,
             format_game_score_comparison,
         )
+        from src.review_report import save_review_html
 
         review_data = analyze_tournament(tid)
         if review_data:
             comparison = format_game_score_comparison(review_data)
             print(comparison)
+
+            review_path = save_review_html(review_data)
+            print(f"[OK] Review report: {review_path}")
     except Exception as e:
         print(f"[WARN] Game score comparison skipped: {e}")
 
