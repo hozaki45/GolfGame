@@ -8,6 +8,74 @@ from __future__ import annotations
 import sys
 
 
+def _verify_odds_tournament(
+    result,
+    espn_player_names: list[str],
+    espn_tournament_name: str,
+) -> None:
+    """Verify that fetched odds belong to the correct tournament.
+
+    Compares player names from the odds source against ESPN player list
+    and picks CSV players to detect tournament mismatches.
+    """
+    from fuzzywuzzy import fuzz
+
+    picks_players = {
+        p.name.lower().strip()
+        for group in result.groups.values()
+        for p in group
+    }
+    odds_players = {
+        p.name.lower().strip()
+        for group in result.groups.values()
+        for p in group
+        if p.best_odds is not None
+    }
+
+    if not odds_players:
+        print("[WARN] Odds verification: no odds data available")
+        return
+
+    # Check 1: How many picks CSV players have matching odds?
+    picks_with_odds = len(odds_players)
+    total_picks = len(picks_players)
+    odds_match_pct = picks_with_odds / total_picks * 100 if total_picks else 0
+
+    # Check 2: If ESPN player list available, check overlap with odds
+    espn_overlap_pct = 0.0
+    if espn_player_names:
+        espn_lower = {n.lower().strip() for n in espn_player_names}
+        overlap = 0
+        for odds_name in odds_players:
+            # Exact or fuzzy match against ESPN names
+            if odds_name in espn_lower:
+                overlap += 1
+                continue
+            best = max(
+                (fuzz.token_sort_ratio(odds_name, en) for en in espn_lower),
+                default=0,
+            )
+            if best >= 80:
+                overlap += 1
+        espn_overlap_pct = overlap / len(odds_players) * 100
+
+    print(f"[INFO] Odds verification: {picks_with_odds}/{total_picks} "
+          f"picks have odds ({odds_match_pct:.0f}%)")
+    if espn_player_names:
+        print(f"[INFO] Odds-ESPN player overlap: {espn_overlap_pct:.0f}%")
+
+    # Warning thresholds
+    if odds_match_pct < 30:
+        print(f"[WARN] Very low odds match rate ({odds_match_pct:.0f}%). "
+              f"Odds may be for a different tournament!")
+        print(f"[WARN] Expected: {espn_tournament_name}")
+        print(f"[WARN] Odds source: {result.tournament_name}")
+    elif espn_player_names and espn_overlap_pct < 40:
+        print(f"[WARN] Low ESPN-odds player overlap ({espn_overlap_pct:.0f}%). "
+              f"Odds may be stale or for a different tournament!")
+        print(f"[WARN] Expected: {espn_tournament_name}")
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -40,15 +108,44 @@ def main() -> int:
         return 1
     print(f"[OK] CSV saved: {csv_result.filepath}")
 
+    # Step 1.5: ESPN から大会情報を取得（大会名の正規ソース）
+    tournament_start = ""
+    tournament_end = ""
+    espn_event_id = ""
+    espn_tournament_name = ""
+    espn_player_names: list[str] = []
+    try:
+        from src.espn_scraper import ESPNScraper
+        espn = ESPNScraper()
+        espn_data = espn.parse_tournament(espn.fetch_leaderboard())
+        if espn_data:
+            espn_tournament_name = espn_data.name
+            espn_event_id = espn_data.event_id
+            espn_player_names = [p.name for p in espn_data.players]
+            if espn_data.start_date:
+                tournament_start = espn_data.start_date[:10]
+            if espn_data.end_date:
+                tournament_end = espn_data.end_date[:10]
+            print(f"[OK] ESPN tournament: {espn_tournament_name}")
+            print(f"[OK] Tournament dates: {tournament_start} ~ {tournament_end}")
+    except Exception as e:
+        print(f"[WARN] ESPN fetch failed (non-critical): {e}")
+
     # Step 2: Run group analysis (fetches odds + generates text report)
     print("\n[STEP 2] Running group analysis...")
     from src.group_analyzer import run as run_analysis
 
-    result = run_analysis(csv_path=str(csv_result.filepath))
+    result = run_analysis(
+        csv_path=str(csv_result.filepath),
+        tournament_name=espn_tournament_name,
+    )
     if not result:
         print("[ERROR] Group analysis failed")
         return 1
     print(f"[OK] Analyzed {len(result.groups)} groups")
+
+    # Step 2.5: オッズの大会一致検証
+    _verify_odds_tournament(result, espn_player_names, espn_tournament_name)
 
     # Step 3: Generate HTML report
     print("\n[STEP 3] Generating HTML report...")
@@ -56,25 +153,6 @@ def main() -> int:
 
     html_path = save_html(result)
     print(f"[OK] HTML report saved: {html_path}")
-
-    # Step 3.5: ESPN から大会開始日を自動取得
-    tournament_start = ""
-    tournament_end = ""
-    espn_event_id = ""
-    try:
-        from src.espn_scraper import ESPNScraper
-        espn = ESPNScraper()
-        espn_data = espn.parse_tournament(espn.fetch_leaderboard())
-        if espn_data:
-            espn_event_id = espn_data.event_id
-            # ISO日時 → YYYY-MM-DD に変換
-            if espn_data.start_date:
-                tournament_start = espn_data.start_date[:10]
-            if espn_data.end_date:
-                tournament_end = espn_data.end_date[:10]
-            print(f"[OK] Tournament dates: {tournament_start} ~ {tournament_end}")
-    except Exception as e:
-        print(f"[WARN] ESPN date fetch failed (non-critical): {e}")
 
     # Step 4: Save to local database
     print("\n[STEP 4] Saving odds to database...")
@@ -141,6 +219,7 @@ def main() -> int:
 
         result_with_stats = run_analysis(
             csv_path=str(csv_result.filepath),
+            tournament_name=espn_tournament_name,
             stats=player_stats,
         )
         if result_with_stats:
