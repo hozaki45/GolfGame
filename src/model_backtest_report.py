@@ -43,26 +43,24 @@ OUTPUT_DIR = Path("data/output")
 def calc_game_score(
     espn_position: int | None,
     handicap: int,
-    group_id: int,
+    made_cut: bool,
     made_cut_count: int,
-    group_made_cut_count: int,
 ) -> float:
     """実際のゲームルールに基づくピックスコアを算出。
 
-    CUT選手は全員「カット通過者数+1」の順位に統一。
-    つまり予選落ち選手の中で最も良い順位を全員に適用する。
+    カット通過: 順位 - ハンデ
+    CUT: 全CUT選手を「カット通過者数+1」の同一順位に統一。
 
     Args:
-        espn_position: 最終順位 (None = CUT)
+        espn_position: 最終順位
         handicap: ハンデキャップ (WGR/100)
-        group_id: グループID (1-9)
+        made_cut: カット通過したかどうか
         made_cut_count: 大会全体のカット通過者数
-        group_made_cut_count: 同グループ内のカット通過者数（未使用）
 
     Returns:
         ゲームスコア (低い方が良い)
     """
-    if espn_position is not None:
+    if made_cut and espn_position is not None:
         # Made cut: Rank - Handicap
         return espn_position - handicap
     else:
@@ -404,7 +402,7 @@ def load_and_simulate() -> list[dict]:
         rows = conn.execute(
             "SELECT mp.group_id, mp.player_name, mp.ml_score, mp.ml_rank_in_group, "
             "mp.egs, mp.egs_rank_in_group, mp.handicap, "
-            "r.espn_position, r.group_rank, "
+            "r.espn_position, r.group_rank, r.rounds_played, "
             "gp.wgr "
             "FROM ml_predictions mp "
             "LEFT JOIN results r ON mp.tournament_id = r.tournament_id "
@@ -419,7 +417,12 @@ def load_and_simulate() -> list[dict]:
 
         # Build groups
         field_size = len(rows)
-        made_cut_count = sum(1 for r in rows if r["espn_position"] is not None)
+        # CUT判定: rounds_played <= 2 は予選落ち（2ラウンドのみプレー）
+        # rounds_played が None の場合は espn_position の有無で判定
+        made_cut_count = sum(
+            1 for r in rows
+            if r["espn_position"] is not None and (r["rounds_played"] is None or r["rounds_played"] > 2)
+        )
 
         groups: dict[int, list[dict]] = {}
         for r in rows:
@@ -431,11 +434,18 @@ def load_and_simulate() -> list[dict]:
             if hc is None:
                 hc = calc_handicap(r["wgr"], field_size)
 
+            # CUT判定: rounds_played <= 2 なら予選落ち
+            rounds = r["rounds_played"]
+            if rounds is not None:
+                player_made_cut = rounds > 2
+            else:
+                player_made_cut = r["espn_position"] is not None
+
             groups[gid].append({
                 "player_name": r["player_name"],
                 "espn_position": r["espn_position"],
                 "group_rank": r["group_rank"],
-                "made_cut": r["espn_position"] is not None,
+                "made_cut": player_made_cut,
                 "handicap": hc,
                 "ml_score": r["ml_score"] or 0,
                 "ml_rank": r["ml_rank_in_group"] or 99,
@@ -446,11 +456,10 @@ def load_and_simulate() -> list[dict]:
 
         # Calculate game scores for each player
         for gid, players in groups.items():
-            group_made_cut = sum(1 for p in players if p["made_cut"])
             for p in players:
                 p["game_score"] = calc_game_score(
                     p["espn_position"], p["handicap"],
-                    gid, made_cut_count, group_made_cut,
+                    p["made_cut"], made_cut_count,
                 )
 
         # Compute v1 & v2 EGS predictions (統一CUTスコアリングで再計算)
