@@ -182,6 +182,25 @@ jobs:
       - name: Run analysis pipeline
         run: uv run python run_pipeline.py
 
+      # --- Generate model comparison & backtest reports ---
+      - name: Generate v2 comparison report
+        run: |
+          uv run python -c "
+          from src.egs_v2_report import generate_comparison_report
+          generate_comparison_report()
+          " || echo "[WARN] Comparison report failed (non-critical)"
+
+      - name: Generate backtest report
+        run: |
+          uv run python -m src.model_backtest_report || echo "[WARN] Backtest report failed (non-critical)"
+
+      - name: Update portal page
+        run: |
+          uv run python -c "
+          from src.portal import generate_portal
+          generate_portal()
+          " || echo "[WARN] Portal update failed (non-critical)"
+
       # --- DB Health Check ---
       - name: DB health check
         if: always()
