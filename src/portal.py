@@ -21,6 +21,7 @@ def generate_portal(output_dir: str = "data/output") -> Path:
     has_dashboard = (out / "dashboard.html").exists()
     has_review = (out / "review.html").exists()
     has_training = (out / "training.html").exists()
+    has_model_comparison = (out / "model_comparison.html").exists()
 
     # 最新の review ファイルからトーナメント名を取得 (簡易)
     review_label = "Post-Tournament Review"
@@ -192,6 +193,24 @@ h1 {{
 <div class="card-icon">&#x1F9E0;</div>
 <div class="card-title">EGS Training History</div>
 <div class="card-desc">Generated after each model retraining (Monday).</div>
+<span class="card-status none">Not yet</span>
+</div>"""
+
+    # Model Comparison card (v1 vs v2)
+    if has_model_comparison:
+        html += """
+<a href="model_comparison.html" class="card">
+<div class="card-icon">&#x1F52C;</div>
+<div class="card-title">EGS v1 vs v2 Model Comparison</div>
+<div class="card-desc">Compare baseline (v1) with Long/Short Memory model (v2). Feature importance, metrics radar.</div>
+<span class="card-status ready">Available</span>
+</a>"""
+    else:
+        html += """
+<div class="card disabled">
+<div class="card-icon">&#x1F52C;</div>
+<div class="card-title">EGS v1 vs v2 Model Comparison</div>
+<div class="card-desc">Generated after v2 model training.</div>
 <span class="card-status none">Not yet</span>
 </div>"""
 

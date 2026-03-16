@@ -92,6 +92,18 @@ jobs:
             echo "[INFO] No pga_stats.db found, skipping EGS training"
           fi
 
+      # --- Train EGS v2 model and generate comparison ---
+      - name: Train EGS v2 (Long/Short Memory)
+        run: |
+          if [ -f data/pga_stats.db ]; then
+            echo "[INFO] Training EGS v2 model..."
+            uv run python -m src.egs_v2_trainer && echo "[OK] EGS v2 trained" || echo "[WARN] EGS v2 training failed (non-critical)"
+            uv run python -c "
+          from src.egs_v2_report import generate_comparison_report
+          generate_comparison_report()
+          " || echo "[WARN] Comparison report failed (non-critical)"
+          fi
+
       # --- Generate training history report ---
       - name: Generate EGS training history report
         run: |
