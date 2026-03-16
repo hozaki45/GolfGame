@@ -49,12 +49,15 @@ def calc_game_score(
 ) -> float:
     """実際のゲームルールに基づくピックスコアを算出。
 
+    CUT選手は全員「カット通過者数+1」の順位に統一。
+    つまり予選落ち選手の中で最も良い順位を全員に適用する。
+
     Args:
         espn_position: 最終順位 (None = CUT)
         handicap: ハンデキャップ (WGR/100)
         group_id: グループID (1-9)
         made_cut_count: 大会全体のカット通過者数
-        group_made_cut_count: 同グループ内のカット通過者数
+        group_made_cut_count: 同グループ内のカット通過者数（未使用）
 
     Returns:
         ゲームスコア (低い方が良い)
@@ -63,12 +66,8 @@ def calc_game_score(
         # Made cut: Rank - Handicap
         return espn_position - handicap
     else:
-        # Missed cut penalty
-        base = (made_cut_count + 1) - handicap
-        if group_id <= 3:
-            return base + group_made_cut_count
-        else:
-            return base
+        # Missed cut: 全CUT選手を同一順位 (カット通過者数+1) に統一
+        return (made_cut_count + 1) - handicap
 
 
 def calc_handicap(wgr_str: str | None, field_size: int) -> int:
@@ -646,8 +645,7 @@ canvas {{ max-height: 320px; }}
 <div class="score-rule">
     <strong>ゲームスコア計算ルール:</strong>
     カット通過: <code>順位 - ハンデ</code> &nbsp;|&nbsp;
-    CUT (G1-3): <code>(カット通過者数+1) - ハンデ + グループ内カット通過者数</code> &nbsp;|&nbsp;
-    CUT (G4+): <code>(カット通過者数+1) - ハンデ</code> &nbsp;|&nbsp;
+    CUT (全グループ共通): <code>(カット通過者数+1) - ハンデ</code> &nbsp;|&nbsp;
     G1は2名、G2-9は1名をピック &nbsp;|&nbsp;
     <strong>合計点が低いほど良い</strong>
 </div>
