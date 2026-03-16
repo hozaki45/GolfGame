@@ -79,7 +79,7 @@ def generate_comparison_report() -> Path:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EGS Model Comparison: v1 vs v2</title>
+<title>EGS モデル比較: v1 vs v2</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
 :root {{
@@ -126,32 +126,32 @@ canvas {{ max-height: 350px; }}
 </head>
 <body>
 <div class="container">
-<h1>EGS Model Comparison</h1>
+<h1>EGS モデル比較</h1>
 <p class="subtitle">
-    <span class="model-badge badge-v1">v1 Baseline</span> vs
-    <span class="model-badge badge-v2">v2 Long/Short Memory</span>
-    &mdash; Generated {now}
+    <span class="model-badge badge-v1">v1 ベースライン</span> vs
+    <span class="model-badge badge-v2">v2 ロング/ショートメモリ</span>
+    &mdash; 生成日時: {now}
 </p>
 
 <div class="summary-box">
     <div class="summary-item">
-        <div class="label">v1 Features</div>
+        <div class="label">v1 特徴量数</div>
         <div class="value v1-val">{len(v1.get('features_used', []))}</div>
     </div>
     <div class="summary-item">
-        <div class="label">v2 Features</div>
+        <div class="label">v2 特徴量数</div>
         <div class="value v2-val">{len(v2.get('features_used', []))}</div>
     </div>
     <div class="summary-item">
-        <div class="label">v2 Long Memory</div>
+        <div class="label">v2 ロングメモリ</div>
         <div class="value" style="color:var(--long-color)">{v2.get('n_long_memory_features', 0)}</div>
     </div>
     <div class="summary-item">
-        <div class="label">v2 Short Memory</div>
+        <div class="label">v2 ショートメモリ</div>
         <div class="value" style="color:var(--short-color)">{v2.get('n_short_memory_features', 0)}</div>
     </div>
     <div class="summary-item">
-        <div class="label">Training Samples</div>
+        <div class="label">訓練サンプル数</div>
         <div class="value">{v2.get('n_samples_cut', 0):,}</div>
     </div>
 </div>
@@ -159,10 +159,10 @@ canvas {{ max-height: 350px; }}
 <div class="grid">
 <!-- Metrics Table -->
 <div class="card full-width">
-<h2>Performance Metrics Comparison</h2>
+<h2>パフォーマンス指標の比較</h2>
 <table>
 <thead>
-<tr><th>Metric</th><th>v1 Baseline</th><th>v2 Memory</th><th>Difference</th><th>Winner</th></tr>
+<tr><th>指標</th><th>v1 ベースライン</th><th>v2 メモリ</th><th>差分</th><th>優位</th></tr>
 </thead>
 <tbody>
 """
@@ -189,66 +189,66 @@ canvas {{ max-height: 350px; }}
 
 <!-- Radar Chart -->
 <div class="card">
-<h2>Metrics Radar</h2>
+<h2>指標レーダーチャート</h2>
 <canvas id="radarChart"></canvas>
 </div>
 
 <!-- Feature Count Chart -->
 <div class="card">
-<h2>Feature Architecture</h2>
+<h2>特徴量アーキテクチャ</h2>
 <canvas id="featureChart"></canvas>
 </div>
 
 <!-- CUT Feature Importance -->
 <div class="card">
-<h2>CUT Classifier - Feature Importance (v2)</h2>
+<h2>CUT分類器 - 特徴量重要度 (v2)</h2>
 <canvas id="cutImportanceChart"></canvas>
 </div>
 
 <!-- Position Feature Importance -->
 <div class="card">
-<h2>Position Regressor - Feature Importance (v2)</h2>
+<h2>順位回帰 - 特徴量重要度 (v2)</h2>
 <canvas id="posImportanceChart"></canvas>
 </div>
 
 <!-- v2 Feature Details -->
 <div class="card full-width">
-<h2>v2 Feature Details</h2>
+<h2>v2 特徴量の詳細</h2>
 <table>
 <thead>
-<tr><th>Feature</th><th>Category</th><th>CUT Importance</th><th>Position Importance</th><th>Description</th></tr>
+<tr><th>特徴量</th><th>カテゴリ</th><th>CUT重要度</th><th>順位重要度</th><th>説明</th></tr>
 </thead>
 <tbody>
 """
 
     feature_descriptions = {
-        "sg_approach": "Strokes Gained: Approach",
-        "sg_off_tee": "Strokes Gained: Off the Tee",
-        "sg_tee_to_green": "Strokes Gained: Tee to Green",
-        "gir_pct": "Greens in Regulation %",
-        "scrambling_pct": "Scrambling %",
-        "scoring_average": "Scoring Average",
-        "scoring_average_rank": "Scoring Average Rank (proxy WGR)",
-        "field_size": "Tournament Field Size",
-        "field_strength": "Field Strength (avg scoring)",
-        "player_relative_strength": "Player vs Field Strength",
-        "career_cut_rate": "CUT通過率 (過去3年)",
-        "career_avg_position_pct": "平均順位% (過去3年)",
-        "career_tournaments_played": "出場数 (過去3年)",
-        "year_over_year_trend": "Scoring Average 前年比変化",
-        "course_history_avg_pos": "同一大会での過去平均順位",
-        "course_history_cut_rate": "同一大会での過去CUT率",
-        "recent_3t_avg_pos_pct": "直近3大会の平均順位%",
+        "sg_approach": "ストロークス・ゲインド: アプローチ",
+        "sg_off_tee": "ストロークス・ゲインド: オフ・ザ・ティー",
+        "sg_tee_to_green": "ストロークス・ゲインド: ティー・トゥ・グリーン",
+        "gir_pct": "パーオン率 (%)",
+        "scrambling_pct": "スクランブリング率 (%)",
+        "scoring_average": "平均スコア",
+        "scoring_average_rank": "平均スコア順位 (WGR代替指標)",
+        "field_size": "大会フィールドサイズ",
+        "field_strength": "フィールド強度 (出場選手の平均スコア)",
+        "player_relative_strength": "選手の相対的強さ (フィールド平均との差)",
+        "career_cut_rate": "CUT通過率 (過去3年間の通算)",
+        "career_avg_position_pct": "平均順位パーセンタイル (過去3年)",
+        "career_tournaments_played": "大会出場数 (過去3年)",
+        "year_over_year_trend": "平均スコアの前年比変化 (成長/衰退)",
+        "course_history_avg_pos": "同一大会での過去平均順位 (コース相性)",
+        "course_history_cut_rate": "同一大会での過去CUT通過率",
+        "recent_3t_avg_pos_pct": "直近3大会の平均順位パーセンタイル",
         "recent_3t_cut_rate": "直近3大会のCUT通過率",
-        "recent_3t_best_pos_pct": "直近3大会の最高順位%",
-        "momentum": "順位改善トレンド (回帰の傾き)",
-        "recent_vs_season": "直近フォーム vs シーズン平均",
+        "recent_3t_best_pos_pct": "直近3大会の最高順位パーセンタイル",
+        "momentum": "モメンタム (直近の順位改善傾向、回帰の傾き)",
+        "recent_vs_season": "直近フォームとシーズン平均の乖離度",
     }
 
     for feat in v2.get("features_used", []):
         cat = feat_category(feat)
         tag_class = f"tag-{cat}"
-        tag_label = {"long": "Long Memory", "short": "Short Memory", "base": "Base"}[cat]
+        tag_label = {"long": "ロングメモリ", "short": "ショートメモリ", "base": "ベース"}[cat]
         cut_imp = v2_cut_fi.get(feat, 0)
         pos_imp = v2_pos_fi.get(feat, 0)
         desc = feature_descriptions.get(feat, feat)
@@ -298,14 +298,14 @@ new Chart(radarCtx, {{
     data: {{
         labels: ['ROC-AUC', 'Accuracy', '1-Brier', 'R2', '1-MAE'],
         datasets: [{{
-            label: 'v1 Baseline',
+            label: 'v1 ベースライン',
             data: [{v1.get('cut_roc_auc_cv',0)}, {v1.get('cut_accuracy_cv',0)},
                    {1-v1.get('cut_brier_cv',0)}, {v1.get('pos_r2_cv',0)},
                    {1-v1.get('pos_mae_cv',0)}],
             borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)',
             pointBackgroundColor: '#f97316',
         }}, {{
-            label: 'v2 Memory',
+            label: 'v2 メモリ',
             data: [{v2.get('cut_roc_auc_cv',0)}, {v2.get('cut_accuracy_cv',0)},
                    {1-v2.get('cut_brier_cv',0)}, {v2.get('pos_r2_cv',0)},
                    {1-v2.get('pos_mae_cv',0)}],
@@ -329,7 +329,7 @@ const featCtx = document.getElementById('featureChart').getContext('2d');
 new Chart(featCtx, {{
     type: 'doughnut',
     data: {{
-        labels: ['Base ({v2.get("n_base_features",10)})', 'Long Memory ({v2.get("n_long_memory_features",6)})', 'Short Memory ({v2.get("n_short_memory_features",5)})'],
+        labels: ['ベース ({v2.get("n_base_features",10)})', 'ロングメモリ ({v2.get("n_long_memory_features",6)})', 'ショートメモリ ({v2.get("n_short_memory_features",5)})'],
         datasets: [{{
             data: [{v2.get('n_base_features',10)}, {v2.get('n_long_memory_features',6)}, {v2.get('n_short_memory_features',5)}],
             backgroundColor: ['rgba(100,116,139,0.7)', 'rgba(168,85,247,0.7)', 'rgba(6,182,212,0.7)'],
@@ -383,9 +383,9 @@ new Chart(posCtx, {{
 }});
 </script>
 <p style="text-align:center;color:var(--muted);margin-top:20px;font-size:0.8rem;">
-    <span style="color:var(--base-color)">&#9632;</span> Base
-    <span style="color:var(--long-color)">&#9632;</span> Long Memory
-    <span style="color:var(--short-color)">&#9632;</span> Short Memory
+    <span style="color:var(--base-color)">&#9632;</span> ベース
+    <span style="color:var(--long-color)">&#9632;</span> ロングメモリ
+    <span style="color:var(--short-color)">&#9632;</span> ショートメモリ
 </p>
 </div>
 </body>
