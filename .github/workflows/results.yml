@@ -76,6 +76,12 @@ jobs:
       - name: Collect tournament results
         run: uv run python -m src.result_collector
 
+      # --- Update PGA Stats DB with latest season data ---
+      - name: Update PGA Stats DB (current season)
+        run: |
+          echo "[INFO] Updating PGA Stats DB with current season data..."
+          uv run python -m src.pga_stats_updater && echo "[OK] PGA Stats DB updated" || echo "[WARN] PGA Stats update failed (non-critical)"
+
       # --- Retrain EGS models with latest results ---
       - name: Retrain EGS models
         run: |

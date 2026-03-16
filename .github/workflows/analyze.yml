@@ -172,6 +172,12 @@ jobs:
             sed -i "s|\${THEODDS_ENABLED}|false|g" config.yaml
           fi
 
+      # --- Update PGA Stats DB with latest season data ---
+      - name: Update PGA Stats DB (current season)
+        run: |
+          echo "[INFO] Updating PGA Stats DB with current season data..."
+          uv run python -m src.pga_stats_updater && echo "[OK] PGA Stats DB updated" || echo "[WARN] PGA Stats update failed (non-critical)"
+
       # --- Run pipeline ---
       - name: Run analysis pipeline
         run: uv run python run_pipeline.py
