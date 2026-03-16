@@ -104,6 +104,11 @@ jobs:
           " || echo "[WARN] Comparison report failed (non-critical)"
           fi
 
+      # --- Generate backtest comparison report ---
+      - name: Generate 3-model backtest report
+        run: |
+          uv run python -m src.model_backtest_report || echo "[WARN] Backtest report failed (non-critical)"
+
       # --- Generate training history report ---
       - name: Generate EGS training history report
         run: |

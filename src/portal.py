@@ -22,6 +22,7 @@ def generate_portal(output_dir: str = "data/output") -> Path:
     has_review = (out / "review.html").exists()
     has_training = (out / "training.html").exists()
     has_model_comparison = (out / "model_comparison.html").exists()
+    has_backtest = (out / "backtest.html").exists()
 
     # 最新の review ファイルからトーナメント名を取得 (簡易)
     review_label = "Post-Tournament Review"
@@ -49,7 +50,7 @@ def generate_portal(output_dir: str = "data/output") -> Path:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     html = f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -139,7 +140,7 @@ h1 {{
 <div class="orb orb-2"></div>
 <div class="container">
 <h1>GolfGame</h1>
-<div class="sub">PGA Tour Betting Analysis & ML Predictions</div>
+<div class="sub">PGA Tour ベッティング分析 & ML予測プラットフォーム</div>
 <div class="cards">"""
 
     # Dashboard card
@@ -148,16 +149,16 @@ h1 {{
 <a href="dashboard.html" class="card">
 <div class="card-icon">&#x1F4CA;</div>
 <div class="card-title">{_esc(dashboard_label)}</div>
-<div class="card-desc">Odds, stats, course fit, ML predictions for this week's tournament.</div>
-<span class="card-status ready">Available</span>
+<div class="card-desc">今週の大会のオッズ、選手統計、コースフィット、ML予測をまとめたダッシュボード。</div>
+<span class="card-status ready">公開中</span>
 </a>"""
     else:
         html += """
 <div class="card disabled">
 <div class="card-icon">&#x1F4CA;</div>
-<div class="card-title">Pre-Tournament Dashboard</div>
-<div class="card-desc">Generated every Wednesday. No dashboard available yet.</div>
-<span class="card-status none">Not yet</span>
+<div class="card-title">大会前ダッシュボード</div>
+<div class="card-desc">毎週水曜に自動生成されます。現在はまだ公開されていません。</div>
+<span class="card-status none">未生成</span>
 </div>"""
 
     # Review card
@@ -166,16 +167,16 @@ h1 {{
 <a href="review.html" class="card">
 <div class="card-icon">&#x1F3C6;</div>
 <div class="card-title">{_esc(review_label)}</div>
-<div class="card-desc">ML accuracy, game score comparison (ML vs EGS), group-by-group results.</div>
-<span class="card-status ready">Available</span>
+<div class="card-desc">ML予測の的中精度、ゲームスコア比較（ML vs EGS）、グループ別の結果振り返り。</div>
+<span class="card-status ready">公開中</span>
 </a>"""
     else:
         html += """
 <div class="card disabled">
 <div class="card-icon">&#x1F3C6;</div>
-<div class="card-title">Post-Tournament Review</div>
-<div class="card-desc">Generated every Monday after tournament ends.</div>
-<span class="card-status none">Not yet</span>
+<div class="card-title">大会後レビュー</div>
+<div class="card-desc">大会終了後の毎週月曜に自動生成されます。</div>
+<span class="card-status none">未生成</span>
 </div>"""
 
     # Training history card
@@ -183,17 +184,17 @@ h1 {{
         html += """
 <a href="training.html" class="card">
 <div class="card-icon">&#x1F9E0;</div>
-<div class="card-title">EGS Training History</div>
-<div class="card-desc">ML model training metrics over time, feature importance trends.</div>
-<span class="card-status ready">Available</span>
+<div class="card-title">EGS 訓練履歴</div>
+<div class="card-desc">MLモデルの訓練メトリクスの推移と、特徴量重要度のトレンドを表示。</div>
+<span class="card-status ready">公開中</span>
 </a>"""
     else:
         html += """
 <div class="card disabled">
 <div class="card-icon">&#x1F9E0;</div>
-<div class="card-title">EGS Training History</div>
-<div class="card-desc">Generated after each model retraining (Monday).</div>
-<span class="card-status none">Not yet</span>
+<div class="card-title">EGS 訓練履歴</div>
+<div class="card-desc">モデル再訓練（毎週月曜）の後に自動生成されます。</div>
+<span class="card-status none">未生成</span>
 </div>"""
 
     # Model Comparison card (v1 vs v2)
@@ -201,23 +202,41 @@ h1 {{
         html += """
 <a href="model_comparison.html" class="card">
 <div class="card-icon">&#x1F52C;</div>
-<div class="card-title">EGS v1 vs v2 Model Comparison</div>
-<div class="card-desc">Compare baseline (v1) with Long/Short Memory model (v2). Feature importance, metrics radar.</div>
-<span class="card-status ready">Available</span>
+<div class="card-title">EGS モデル比較 (v1 vs v2)</div>
+<div class="card-desc">ベースライン(v1)とロング/ショートメモリモデル(v2)の精度比較。特徴量重要度、レーダーチャート付き。</div>
+<span class="card-status ready">公開中</span>
 </a>"""
     else:
         html += """
 <div class="card disabled">
 <div class="card-icon">&#x1F52C;</div>
-<div class="card-title">EGS v1 vs v2 Model Comparison</div>
-<div class="card-desc">Generated after v2 model training.</div>
-<span class="card-status none">Not yet</span>
+<div class="card-title">EGS モデル比較 (v1 vs v2)</div>
+<div class="card-desc">v2モデル訓練後に自動生成されます。</div>
+<span class="card-status none">未生成</span>
+</div>"""
+
+    # Backtest card
+    if has_backtest:
+        html += """
+<a href="backtest.html" class="card">
+<div class="card-icon">&#x1F3AF;</div>
+<div class="card-title">3モデル バックテスト比較</div>
+<div class="card-desc">ML予測・EGS v1・EGS v2 の3モデルの予測と実際の大会結果を比較。グループ1位の的中率、大会別の詳細結果。</div>
+<span class="card-status ready">公開中</span>
+</a>"""
+    else:
+        html += """
+<div class="card disabled">
+<div class="card-icon">&#x1F3AF;</div>
+<div class="card-title">3モデル バックテスト比較</div>
+<div class="card-desc">大会結果の収集後に自動生成されます。</div>
+<span class="card-status none">未生成</span>
 </div>"""
 
     html += f"""
 </div>
 </div>
-<div class="footer">Updated {now}</div>
+<div class="footer">最終更新: {now}</div>
 </body>
 </html>"""
 
