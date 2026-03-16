@@ -83,20 +83,32 @@ def calc_handicap(wgr_str: str | None, field_size: int) -> int:
     return min(hc, max_hc)
 
 
-# ----- EGS v2 Prediction -----
+# ----- EGS Model Prediction -----
 
-def _load_v2_model():
-    """v2モデルをロード。"""
-    if not V2_CUT_PATH.exists() or not V2_POS_PATH.exists():
+V1_CUT_PATH = MODEL_DIR / "egs_cut_classifier.joblib"
+V1_POS_PATH = MODEL_DIR / "egs_position_regressor.joblib"
+
+
+def _load_model(cut_path, pos_path, label="model"):
+    """モデルをロード。"""
+    if not cut_path.exists() or not pos_path.exists():
         return None, None, []
     try:
         import joblib
-        cut_data = joblib.load(V2_CUT_PATH)
-        pos_data = joblib.load(V2_POS_PATH)
+        cut_data = joblib.load(cut_path)
+        pos_data = joblib.load(pos_path)
         return cut_data["model"], pos_data["model"], cut_data["features_used"]
     except Exception as e:
-        print(f"[WARN] v2 model load failed: {e}")
+        print(f"[WARN] {label} load failed: {e}")
         return None, None, []
+
+
+def _load_v1_model():
+    return _load_model(V1_CUT_PATH, V1_POS_PATH, "v1")
+
+
+def _load_v2_model():
+    return _load_model(V2_CUT_PATH, V2_POS_PATH, "v2")
 
 
 def _build_v2_player_features(
@@ -157,15 +169,18 @@ def _build_v2_player_features(
     return np.array(values, dtype=np.float64).reshape(1, -1)
 
 
-def compute_v2_egs_for_tournament(groups: dict, field_size: int, made_cut_count: int) -> dict:
-    """大会の全選手にv2 EGSを計算。
+def compute_egs_for_tournament(groups: dict, field_size: int, made_cut_count: int) -> tuple[dict, dict]:
+    """大会の全選手にv1・v2 EGSを計算（統一CUTスコアリング）。
 
     Returns:
-        {player_name: {"egs_v2": float, "egs_v2_rank": int}} or empty dict
+        (v1_results, v2_results)
+        各 dict: {player_name: {"egs": float, "egs_rank": int}}
     """
+    v1_cut, v1_pos, v1_features = _load_v1_model()
     v2_cut, v2_pos, v2_features = _load_v2_model()
-    if v2_cut is None:
-        return {}
+
+    if v1_cut is None and v2_cut is None:
+        return {}, {}
 
     if not PGA_STATS_DB.exists():
         return {}
@@ -251,14 +266,16 @@ def compute_v2_egs_for_tournament(groups: dict, field_size: int, made_cut_count:
 
     conn.close()
 
-    # Compute v2 EGS for each player
-    e_cut_count = made_cut_count  # actual cut count from results
+    # Compute EGS for each player (both v1 and v2)
+    e_cut_count = made_cut_count
 
+    v1_results: dict[str, dict] = {}
     v2_results: dict[str, dict] = {}
+    group_v1_egs: dict[int, list] = {}
     group_v2_egs: dict[int, list] = {}
 
     for gid, players in groups.items():
-        group_made_cut = sum(1 for p in players if p["made_cut"])
+        group_v1_egs[gid] = []
         group_v2_egs[gid] = []
 
         for p in players:
@@ -266,7 +283,7 @@ def compute_v2_egs_for_tournament(groups: dict, field_size: int, made_cut_count:
             stats = player_stats_map.get(name, {})
             history = player_history.get(name, [])
 
-            # Career data (past years only, not current)
+            # Career data (past years only)
             past = [h for h in history if h["year"] < year]
             if past:
                 career_cut_rate = sum(h["made_cut"] for h in past) / len(past)
@@ -304,46 +321,62 @@ def compute_v2_egs_for_tournament(groups: dict, field_size: int, made_cut_count:
                 recent = {"cut_rate": np.nan, "avg_pos_pct": np.nan,
                           "best_pos_pct": np.nan, "momentum": np.nan, "recent_vs_season": np.nan}
 
-            course = {"avg_pos": np.nan, "cut_rate": np.nan}  # simplified for backtest
+            course = {"avg_pos": np.nan, "cut_rate": np.nan}
 
-            features = _build_v2_player_features(
-                name, year, "", field_size, field_scoring_avg,
-                stats, career, recent, course, v2_features,
-            )
-
-            if features is not None:
-                try:
-                    p_cut = float(v2_cut.predict_proba(features)[0][0])  # P(missed cut)
-                    pos_pct = float(v2_pos.predict(features)[0])
-                    pos_pct = max(0.01, min(1.0, pos_pct))
-                    e_pos = pos_pct * e_cut_count
-
-                    # EGS calculation (same formula as game_optimizer)
-                    group_size = len(players)
-                    cut_rate = 1 - (made_cut_count / field_size) if field_size > 0 else 0.43
-                    e_group_cut = round(group_size * cut_rate)
-
-                    if gid <= 3:
-                        e_cut_score = (e_cut_count + 1) - p["handicap"] + e_group_cut
-                    else:
+            # --- v1 EGS (統一CUTスコアリングで再計算) ---
+            if v1_cut is not None:
+                v1_feat = _build_v2_player_features(
+                    name, year, "", field_size, field_scoring_avg,
+                    stats, career, recent, course, v1_features,
+                )
+                if v1_feat is not None:
+                    try:
+                        p_cut_v1 = float(v1_cut.predict_proba(v1_feat)[0][0])
+                        pos_pct_v1 = float(v1_pos.predict(v1_feat)[0])
+                        pos_pct_v1 = max(0.01, min(1.0, pos_pct_v1))
+                        e_pos_v1 = pos_pct_v1 * e_cut_count
                         e_cut_score = (e_cut_count + 1) - p["handicap"]
+                        e_made_cut_score = e_pos_v1 - p["handicap"]
+                        egs_v1 = p_cut_v1 * e_cut_score + (1 - p_cut_v1) * e_made_cut_score
+                        v1_results[name] = {"egs_v1": egs_v1}
+                        group_v1_egs[gid].append((name, egs_v1))
+                    except Exception:
+                        pass
 
-                    e_made_cut_score = e_pos - p["handicap"]
-                    egs_v2 = p_cut * e_cut_score + (1 - p_cut) * e_made_cut_score
+            # --- v2 EGS (統一CUTスコアリング) ---
+            if v2_cut is not None:
+                v2_feat = _build_v2_player_features(
+                    name, year, "", field_size, field_scoring_avg,
+                    stats, career, recent, course, v2_features,
+                )
+                if v2_feat is not None:
+                    try:
+                        p_cut_v2 = float(v2_cut.predict_proba(v2_feat)[0][0])
+                        pos_pct_v2 = float(v2_pos.predict(v2_feat)[0])
+                        pos_pct_v2 = max(0.01, min(1.0, pos_pct_v2))
+                        e_pos_v2 = pos_pct_v2 * e_cut_count
+                        e_cut_score = (e_cut_count + 1) - p["handicap"]
+                        e_made_cut_score = e_pos_v2 - p["handicap"]
+                        egs_v2 = p_cut_v2 * e_cut_score + (1 - p_cut_v2) * e_made_cut_score
+                        v2_results[name] = {"egs_v2": egs_v2}
+                        group_v2_egs[gid].append((name, egs_v2))
+                    except Exception:
+                        pass
 
-                    v2_results[name] = {"egs_v2": egs_v2}
-                    group_v2_egs[gid].append((name, egs_v2))
-                except Exception:
-                    pass
+    # Assign ranks within groups
+    for gid, items in group_v1_egs.items():
+        items.sort(key=lambda x: x[1])
+        for rank, (name, _) in enumerate(items, 1):
+            if name in v1_results:
+                v1_results[name]["egs_v1_rank"] = rank
 
-    # Assign v2 ranks within groups
     for gid, items in group_v2_egs.items():
         items.sort(key=lambda x: x[1])
         for rank, (name, _) in enumerate(items, 1):
             if name in v2_results:
                 v2_results[name]["egs_v2_rank"] = rank
 
-    return v2_results
+    return v1_results, v2_results
 
 
 # ----- Data Loading & Simulation -----
@@ -420,10 +453,13 @@ def load_and_simulate() -> list[dict]:
                     gid, made_cut_count, group_made_cut,
                 )
 
-        # Compute v2 EGS predictions
-        v2_predictions = compute_v2_egs_for_tournament(groups, field_size, made_cut_count)
+        # Compute v1 & v2 EGS predictions (統一CUTスコアリングで再計算)
+        v1_predictions, v2_predictions = compute_egs_for_tournament(groups, field_size, made_cut_count)
         for gid, players in groups.items():
             for p in players:
+                v1_data = v1_predictions.get(p["player_name"], {})
+                p["egs_v1"] = v1_data.get("egs_v1", p.get("egs_v1"))  # fallback to DB value
+                p["egs_v1_rank"] = v1_data.get("egs_v1_rank", p.get("egs_v1_rank"))
                 v2_data = v2_predictions.get(p["player_name"], {})
                 p["egs_v2"] = v2_data.get("egs_v2")
                 p["egs_v2_rank"] = v2_data.get("egs_v2_rank")
