@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write              # For creating releases
+  pages: write
+  id-token: write
 
 concurrency:
   group: "golf-pipeline"
@@ -15,6 +17,9 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout
@@ -176,3 +181,16 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ github.token }}
+
+      # --- Deploy to GitHub Pages ---
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: data/output
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
