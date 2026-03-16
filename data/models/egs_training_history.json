@@ -248,5 +248,55 @@
       "player_relative_strength": 0.7609
     },
     "trained_at": "2026-03-17T00:20:24.375081"
+  },
+  {
+    "model_type": "EGS 2-Stage (CutClassifier + PositionRegressor)",
+    "cut_model": "HistGradientBoostingClassifier",
+    "position_model": "HistGradientBoostingRegressor",
+    "n_samples_cut": 36533,
+    "n_samples_position": 22167,
+    "features_used": [
+      "sg_approach",
+      "sg_off_tee",
+      "sg_tee_to_green",
+      "gir_pct",
+      "scrambling_pct",
+      "scoring_average",
+      "scoring_average_rank",
+      "field_size",
+      "field_strength",
+      "player_relative_strength"
+    ],
+    "cut_roc_auc_cv": 0.7174,
+    "cut_brier_cv": 0.2055,
+    "cut_accuracy_cv": 0.6619,
+    "pos_mae_cv": 0.2241,
+    "pos_r2_cv": 0.1392,
+    "pos_mae_raw_cv": 15.9,
+    "cut_feature_importance": {
+      "sg_approach": 0.0114,
+      "sg_off_tee": 0.0049,
+      "sg_tee_to_green": 0.0296,
+      "gir_pct": 0.0241,
+      "scrambling_pct": 0.0105,
+      "scoring_average": 0.0231,
+      "scoring_average_rank": 0.0068,
+      "field_size": 0.3092,
+      "field_strength": 0.0432,
+      "player_relative_strength": 0.5372
+    },
+    "pos_feature_importance": {
+      "sg_approach": 0.0183,
+      "sg_off_tee": 0.015,
+      "sg_tee_to_green": 0.0479,
+      "gir_pct": 0.0361,
+      "scrambling_pct": 0.0137,
+      "scoring_average": 0.0365,
+      "scoring_average_rank": 0.0113,
+      "field_size": 0.0346,
+      "field_strength": 0.0257,
+      "player_relative_strength": 0.7609
+    },
+    "trained_at": "2026-03-17T00:33:07.984594"
   }
 ]
