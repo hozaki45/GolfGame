@@ -655,12 +655,14 @@ def run_ml_prediction(
 
     # Game Score Optimization (EGS)
     egs_result = None
+    egs_v2_result = None
     game_cfg = config.get("game_optimization", {}) if config else {}
     if game_cfg.get("enabled", False):
         try:
             from .game_optimizer import optimize_picks, format_egs_report
 
-            egs_result = optimize_picks(groups, config=game_cfg)
+            # EGS v1
+            egs_result = optimize_picks(groups, config=game_cfg, model_version="v1")
 
             # GroupPlayer に EGS データを付与
             for name, pegs in egs_result.player_egs.items():
@@ -673,6 +675,13 @@ def run_ml_prediction(
                             p_inner.handicap = pegs.handicap
 
             print(format_egs_report(egs_result))
+
+            # EGS v2
+            try:
+                egs_v2_result = optimize_picks(groups, config=game_cfg, model_version="v2")
+                print("[OK] EGS v2 optimization complete")
+            except Exception as e2:
+                print(f"[WARN] EGS v2 optimization failed (non-critical): {e2}")
         except Exception as e:
             print(f"[WARN] Game optimization failed: {e}")
 
@@ -682,6 +691,7 @@ def run_ml_prediction(
         "model_info": model_info,
         "weights": weights,
         "egs_result": egs_result,
+        "egs_v2_result": egs_v2_result,
     }
 
 

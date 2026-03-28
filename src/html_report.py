@@ -46,20 +46,22 @@ def generate_html(
     course_fit: dict | None = None,
     ml_result: dict | None = None,
     egs_result=None,
+    egs_v2_result=None,
 ) -> str:
-    """4タブ構成のChart.jsダッシュボードHTML生成。"""
+    """5タブ構成のChart.jsダッシュボードHTML生成。"""
     chart_data = _build_chart_data(result.groups, ml_result, egs_result)
     chart_json = json.dumps(chart_data, ensure_ascii=False)
     chart_json = chart_json.replace("</", "<\\/")
 
     has_egs = egs_result is not None
+    has_picks_comparison = has_egs and ml_result and ml_result.get("predictions")
 
     parts = [
         _head(result.tournament_name),
         "<body>",
         '<div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div>',
         _header(result.tournament_name, result.generated_at, result.bookmakers, ml_result),
-        _nav(has_egs=has_egs),
+        _nav(has_egs=has_egs, has_picks_comparison=has_picks_comparison),
         '<div class="container">',
         _section_dashboard(result.groups, ml_result),
         _section_odds_tab(result.groups, result.bookmakers),
@@ -67,6 +69,8 @@ def generate_html(
     ]
     if has_egs:
         parts.append(_section_game_tab(result.groups, ml_result, egs_result))
+    if has_picks_comparison:
+        parts.append(_section_picks_tab(result.groups, ml_result, egs_result, egs_v2_result))
     parts += [
         "</div>",
         _footer(result.generated_at),
@@ -82,9 +86,13 @@ def save_html(
     course_fit: dict | None = None,
     ml_result: dict | None = None,
     egs_result=None,
+    egs_v2_result=None,
 ) -> Path:
     """HTML生成・ファイル保存。"""
-    html = generate_html(result, course_fit=course_fit, ml_result=ml_result, egs_result=egs_result)
+    html = generate_html(
+        result, course_fit=course_fit, ml_result=ml_result,
+        egs_result=egs_result, egs_v2_result=egs_v2_result,
+    )
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html, encoding="utf-8")
@@ -467,7 +475,7 @@ def _header(
     return html
 
 
-def _nav(has_egs: bool = False) -> str:
+def _nav(has_egs: bool = False, has_picks_comparison: bool = False) -> str:
     """タブ ピルナビゲーション。"""
     tabs = [
         ("dashboard", "Dashboard"),
@@ -476,6 +484,8 @@ def _nav(has_egs: bool = False) -> str:
     ]
     if has_egs:
         tabs.append(("game-tab", "Game Strategy"))
+    if has_picks_comparison:
+        tabs.append(("picks-tab", "Pick Comparison"))
     items = "".join(
         f'<div class="tab{" active" if i == 0 else ""}" '
         f'data-section="{sid}" onclick="showSection(\'{sid}\')">{label}</div>'
@@ -926,6 +936,255 @@ def _section_game_tab(
 
         html += '</div></div>'
 
+    html += '</div>'
+    return html
+
+
+#----- Pick Comparison タブ -----
+
+
+def _section_picks_tab(
+    groups: dict[int, list[GroupPlayer]],
+    ml_result: dict | None,
+    egs_result,
+    egs_v2_result=None,
+) -> str:
+    """3モデル (ML / EGS v1 / EGS v2) のピック比較タブ。"""
+    predictions = ml_result.get("predictions", {}) if ml_result else {}
+    egs_picks = egs_result.picks if egs_result else {}
+    egs_v2_picks = egs_v2_result.picks if egs_v2_result else {}
+    egs_player_map = egs_result.player_egs if egs_result else {}
+    egs_v2_player_map = egs_v2_result.player_egs if egs_v2_result else {}
+    has_v2 = bool(egs_v2_result)
+
+    # 一致統計
+    total_groups = len(groups)
+    all_agree = 0
+    ml_egs1_agree = 0
+    ml_egs2_agree = 0
+    egs1_egs2_agree = 0
+    for gid in sorted(groups.keys()):
+        n_picks = 2 if gid == 1 else 1
+        ml_names = _get_ml_picks(groups[gid], predictions, n_picks)
+        v1_names = set(egs_picks.get(gid, []))
+        v2_names = set(egs_v2_picks.get(gid, [])) if has_v2 else set()
+        ml_set = set(ml_names)
+        if ml_set == v1_names:
+            ml_egs1_agree += 1
+        if has_v2 and ml_set == v2_names:
+            ml_egs2_agree += 1
+        if has_v2 and v1_names == v2_names:
+            egs1_egs2_agree += 1
+        if has_v2 and ml_set == v1_names == v2_names:
+            all_agree += 1
+        elif not has_v2 and ml_set == v1_names:
+            all_agree += 1
+
+    html = '<div id="picks-tab" class="section">'
+
+    # サマリーカード
+    html += '<div class="glass" style="margin-bottom:1.5rem;padding:1.5rem">'
+    html += '<h2 style="margin:0 0 1rem;font-size:1.3rem">Pick Comparison</h2>'
+
+    # 合意率バー
+    models_label = "ML / EGS v1 / EGS v2" if has_v2 else "ML / EGS v1"
+    html += f'<div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem">'
+
+    html += (
+        f'<div style="text-align:center">'
+        f'<div style="font-size:2rem;font-weight:800;color:#22c55e">{all_agree}/{total_groups}</div>'
+        f'<div style="font-size:.75rem;opacity:.6">Full Agree</div></div>'
+    )
+    html += (
+        f'<div style="text-align:center">'
+        f'<div style="font-size:1.5rem;font-weight:700;color:#3b82f6">{ml_egs1_agree}/{total_groups}</div>'
+        f'<div style="font-size:.75rem;opacity:.6">ML = v1</div></div>'
+    )
+    if has_v2:
+        html += (
+            f'<div style="text-align:center">'
+            f'<div style="font-size:1.5rem;font-weight:700;color:#a855f7">{ml_egs2_agree}/{total_groups}</div>'
+            f'<div style="font-size:.75rem;opacity:.6">ML = v2</div></div>'
+        )
+        html += (
+            f'<div style="text-align:center">'
+            f'<div style="font-size:1.5rem;font-weight:700;color:#f59e0b">{egs1_egs2_agree}/{total_groups}</div>'
+            f'<div style="font-size:.75rem;opacity:.6">v1 = v2</div></div>'
+        )
+    html += '</div>'
+
+    # EGS合計比較
+    ml_total_egs = egs_result.ml_total_egs if egs_result else 0
+    v1_total_egs = egs_result.total_egs if egs_result else 0
+    v2_total_egs = egs_v2_result.total_egs if egs_v2_result else 0
+    html += '<div style="display:flex;gap:1.5rem;flex-wrap:wrap">'
+    html += (
+        f'<div style="padding:.6rem 1rem;border-radius:.5rem;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3)">'
+        f'<span style="font-size:.7rem;opacity:.6">ML Total EGS</span><br>'
+        f'<span style="font-size:1.2rem;font-weight:700;color:#3b82f6">{ml_total_egs:.1f}</span></div>'
+    )
+    html += (
+        f'<div style="padding:.6rem 1rem;border-radius:.5rem;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3)">'
+        f'<span style="font-size:.7rem;opacity:.6">EGS v1 Total</span><br>'
+        f'<span style="font-size:1.2rem;font-weight:700;color:#22c55e">{v1_total_egs:.1f}</span></div>'
+    )
+    if has_v2:
+        html += (
+            f'<div style="padding:.6rem 1rem;border-radius:.5rem;background:rgba(168,85,247,.15);border:1px solid rgba(168,85,247,.3)">'
+            f'<span style="font-size:.7rem;opacity:.6">EGS v2 Total</span><br>'
+            f'<span style="font-size:1.2rem;font-weight:700;color:#a855f7">{v2_total_egs:.1f}</span></div>'
+        )
+    html += '</div></div>'
+
+    # グループ別ピック比較テーブル
+    for gid in sorted(groups.keys()):
+        players = groups[gid]
+        n_picks = 2 if gid == 1 else 1
+        ml_names = _get_ml_picks(players, predictions, n_picks)
+        v1_names = egs_picks.get(gid, [])
+        v2_names = egs_v2_picks.get(gid, []) if has_v2 else []
+
+        ml_set = set(ml_names)
+        v1_set = set(v1_names)
+        v2_set = set(v2_names) if has_v2 else set()
+
+        # 全一致チェック
+        if has_v2:
+            group_agree = ml_set == v1_set == v2_set
+        else:
+            group_agree = ml_set == v1_set
+
+        badge_color = "#22c55e" if group_agree else "#f59e0b"
+        badge_text = "AGREE" if group_agree else "DIFFER"
+
+        html += '<div class="glass" style="margin-bottom:1rem;padding:1rem">'
+        html += (
+            f'<div style="display:flex;align-items:center;gap:.7rem;margin-bottom:.8rem">'
+            f'<span style="font-weight:700;font-size:1.1rem">Group {gid}</span>'
+            f'<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;'
+            f'background:{badge_color}22;color:{badge_color};border:1px solid {badge_color}44">'
+            f'{badge_text}</span>'
+            f'<span style="font-size:.7rem;opacity:.5">{n_picks} pick{"s" if n_picks > 1 else ""}</span>'
+            f'</div>'
+        )
+
+        # ピック比較カード (横並び)
+        html += '<div style="display:flex;gap:.8rem;flex-wrap:wrap;margin-bottom:.8rem">'
+
+        # ML Pick カード
+        html += _pick_card("ML", "#3b82f6", ml_names, predictions, egs_player_map)
+
+        # EGS v1 カード
+        html += _pick_card("EGS v1", "#22c55e", v1_names, predictions, egs_player_map)
+
+        # EGS v2 カード
+        if has_v2:
+            html += _pick_card("EGS v2", "#a855f7", v2_names, predictions, egs_v2_player_map)
+
+        html += '</div>'
+
+        # 全選手テーブル
+        html += '<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:.75rem">'
+        html += '<tr><th>#</th><th>Player</th><th>WGR</th>'
+        html += '<th>ML</th><th>EGS v1</th>'
+        if has_v2:
+            html += '<th>EGS v2</th>'
+        html += '<th>Pick</th></tr>'
+
+        # 全選手の情報を収集してML scoreでソート
+        rows = []
+        for p in players:
+            pred = predictions.get(p.name)
+            ml_sc = pred.ml_score if pred else None
+            pegs_v1 = egs_player_map.get(p.name)
+            pegs_v2 = egs_v2_player_map.get(p.name)
+            rows.append((p, ml_sc, pegs_v1, pegs_v2))
+        rows.sort(key=lambda r: r[1] if r[1] is not None else -999, reverse=True)
+
+        for rank, (p, ml_sc, pegs_v1, pegs_v2) in enumerate(rows, 1):
+            in_ml = p.name in ml_set
+            in_v1 = p.name in v1_set
+            in_v2 = p.name in v2_set
+
+            # ピックバッジ
+            badges = []
+            if in_ml:
+                badges.append('<span style="color:#3b82f6;font-weight:700">ML</span>')
+            if in_v1:
+                badges.append('<span style="color:#22c55e;font-weight:700">v1</span>')
+            if has_v2 and in_v2:
+                badges.append('<span style="color:#a855f7;font-weight:700">v2</span>')
+            pick_str = " ".join(badges) if badges else "-"
+
+            # 行の背景色
+            bg = ""
+            if in_ml and in_v1 and (not has_v2 or in_v2):
+                bg = "background:rgba(34,197,94,.08);"
+            elif in_ml or in_v1 or in_v2:
+                bg = "background:rgba(255,255,255,.03);"
+
+            ml_display = f"{ml_sc:.1f}" if ml_sc is not None else "-"
+            v1_display = f"{pegs_v1.egs:.1f}" if pegs_v1 else "-"
+            v2_display = f"{pegs_v2.egs:.1f}" if pegs_v2 else "-"
+
+            html += f'<tr style="{bg}">'
+            html += f'<td>{rank}</td>'
+            html += f'<td style="font-weight:{"700" if badges else "400"}">{_escape(p.name)}</td>'
+            html += f'<td>{p.wgr or "-"}</td>'
+            html += f'<td>{ml_display}</td>'
+            html += f'<td>{v1_display}</td>'
+            if has_v2:
+                html += f'<td>{v2_display}</td>'
+            html += f'<td>{pick_str}</td>'
+            html += '</tr>'
+
+        html += '</table></div></div>'
+
+    html += '</div>'
+    return html
+
+
+def _get_ml_picks(
+    players: list[GroupPlayer],
+    predictions: dict,
+    n_picks: int,
+) -> list[str]:
+    """グループ内のML上位N名を返す。"""
+    scored = []
+    for p in players:
+        pred = predictions.get(p.name)
+        sc = pred.ml_score if pred else None
+        scored.append((p.name, sc if sc is not None else -1))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return [name for name, _ in scored[:n_picks]]
+
+
+def _pick_card(
+    label: str,
+    color: str,
+    names: list[str],
+    predictions: dict,
+    egs_map: dict,
+) -> str:
+    """1モデルのピックカードHTML。"""
+    html = (
+        f'<div style="flex:1;min-width:140px;padding:.7rem;border-radius:.6rem;'
+        f'background:{color}11;border:1px solid {color}33">'
+        f'<div style="font-size:.7rem;font-weight:700;color:{color};margin-bottom:.4rem">'
+        f'{label}</div>'
+    )
+    for name in names:
+        pred = predictions.get(name)
+        pegs = egs_map.get(name)
+        ml_sc = f"{pred.ml_score:.1f}" if pred and pred.ml_score is not None else "-"
+        egs_sc = f"{pegs.egs:.1f}" if pegs else "-"
+        hc = f"{pegs.handicap}" if pegs else "-"
+        p_cut = f"{pegs.p_cut:.0%}" if pegs else "-"
+        html += (
+            f'<div style="font-weight:600;font-size:.85rem">{_escape(name)}</div>'
+            f'<div style="font-size:.65rem;opacity:.7">'
+            f'ML:{ml_sc} | EGS:{egs_sc} | HC:{hc} | P(cut):{p_cut}</div>'
+        )
     html += '</div>'
     return html
 

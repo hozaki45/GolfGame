@@ -24,6 +24,8 @@ import yaml
 EGS_MODEL_DIR = Path("data/models")
 CUT_MODEL_PATH = EGS_MODEL_DIR / "egs_cut_classifier.joblib"
 POS_MODEL_PATH = EGS_MODEL_DIR / "egs_position_regressor.joblib"
+CUT_V2_MODEL_PATH = EGS_MODEL_DIR / "egs_v2_cut_classifier.joblib"
+POS_V2_MODEL_PATH = EGS_MODEL_DIR / "egs_v2_position_regressor.joblib"
 
 # WGRレンジ → P(cut) デフォルトテーブル
 DEFAULT_WGR_CUT_TABLE: list[tuple[int, float]] = [
@@ -46,9 +48,14 @@ _position_regressor = None
 _egs_features: list[str] = []
 _ml_models_loaded = False
 
+_cut_classifier_v2 = None
+_position_regressor_v2 = None
+_egs_features_v2: list[str] = []
+_ml_models_v2_loaded = False
+
 
 def _load_egs_models() -> bool:
-    """EGS用MLモデルをロード。初回呼び出し時に1回だけ実行。"""
+    """EGS用MLモデル(v1)をロード。初回呼び出し時に1回だけ実行。"""
     global _cut_classifier, _position_regressor, _egs_features, _ml_models_loaded
     _ml_models_loaded = True
 
@@ -63,12 +70,37 @@ def _load_egs_models() -> bool:
         _cut_classifier = cut_data["model"]
         _position_regressor = pos_data["model"]
         _egs_features = cut_data["features_used"]
-        print(f"[OK] EGS ML models loaded ({len(_egs_features)} features)")
+        print(f"[OK] EGS v1 ML models loaded ({len(_egs_features)} features)")
         return True
     except Exception as e:
-        print(f"[WARN] Failed to load EGS models: {e}")
+        print(f"[WARN] Failed to load EGS v1 models: {e}")
         _cut_classifier = None
         _position_regressor = None
+        return False
+
+
+def _load_egs_models_v2() -> bool:
+    """EGS用MLモデル(v2)をロード。初回呼び出し時に1回だけ実行。"""
+    global _cut_classifier_v2, _position_regressor_v2, _egs_features_v2, _ml_models_v2_loaded
+    _ml_models_v2_loaded = True
+
+    if not CUT_V2_MODEL_PATH.exists() or not POS_V2_MODEL_PATH.exists():
+        print("[INFO] EGS v2 ML models not found, skipping v2")
+        return False
+
+    try:
+        import joblib
+        cut_data = joblib.load(CUT_V2_MODEL_PATH)
+        pos_data = joblib.load(POS_V2_MODEL_PATH)
+        _cut_classifier_v2 = cut_data["model"]
+        _position_regressor_v2 = pos_data["model"]
+        _egs_features_v2 = cut_data["features_used"]
+        print(f"[OK] EGS v2 ML models loaded ({len(_egs_features_v2)} features)")
+        return True
+    except Exception as e:
+        print(f"[WARN] Failed to load EGS v2 models: {e}")
+        _cut_classifier_v2 = None
+        _position_regressor_v2 = None
         return False
 
 
@@ -77,18 +109,23 @@ def _build_feature_vector(
     player_stats: dict[str, float] | None,
     field_size: int | None,
     field_scoring_avg: float | None,
+    features_list: list[str] | None = None,
 ) -> np.ndarray | None:
     """選手の特徴量ベクトルを構築。
+
+    Args:
+        features_list: 使用する特徴量リスト。None の場合は v1 の _egs_features を使用。
 
     Returns:
         shape (1, n_features) の numpy array、または構築不可なら None
     """
-    if not _egs_features or player_stats is None:
+    feats = features_list if features_list is not None else _egs_features
+    if not feats or player_stats is None:
         return None
 
     values = []
     has_any_stat = False
-    for feat in _egs_features:
+    for feat in feats:
         if feat in player_stats and player_stats[feat] is not None:
             values.append(player_stats[feat])
             has_any_stat = True
@@ -118,14 +155,17 @@ def _predict_p_cut_ml(
     player_stats: dict[str, float] | None,
     field_size: int | None,
     field_scoring_avg: float | None,
+    classifier=None,
+    features_list: list[str] | None = None,
 ) -> float | None:
     """MLモデルでP(cut)を予測。"""
-    if _cut_classifier is None:
+    clf = classifier if classifier is not None else _cut_classifier
+    if clf is None:
         return None
-    features = _build_feature_vector(wgr, player_stats, field_size, field_scoring_avg)
+    features = _build_feature_vector(wgr, player_stats, field_size, field_scoring_avg, features_list)
     if features is None:
         return None
-    proba = _cut_classifier.predict_proba(features)[0]
+    proba = clf.predict_proba(features)[0]
     # classes_: [0=missed_cut, 1=made_cut] → P(cut) = proba[0]
     return float(proba[0])
 
@@ -136,14 +176,17 @@ def _predict_e_position_ml(
     field_size: int | None,
     field_scoring_avg: float | None,
     e_cut_count: int,
+    regressor=None,
+    features_list: list[str] | None = None,
 ) -> float | None:
     """MLモデルでE[position | made_cut]を予測。"""
-    if _position_regressor is None:
+    reg = regressor if regressor is not None else _position_regressor
+    if reg is None:
         return None
-    features = _build_feature_vector(wgr, player_stats, field_size, field_scoring_avg)
+    features = _build_feature_vector(wgr, player_stats, field_size, field_scoring_avg, features_list)
     if features is None:
         return None
-    position_pct = float(_position_regressor.predict(features)[0])
+    position_pct = float(reg.predict(features)[0])
     position_pct = max(0.01, min(1.0, position_pct))
     return position_pct * e_cut_count
 
@@ -261,6 +304,8 @@ def estimate_p_cut(
     player_stats: dict[str, float] | None = None,
     field_size: int | None = None,
     field_scoring_avg: float | None = None,
+    *,
+    model_version: str = "v1",
 ) -> tuple[float, str]:
     """CUT確率の推定。MLモデル利用可能ならML推定、なければヒューリスティック。
 
@@ -272,13 +317,26 @@ def estimate_p_cut(
         player_stats: SG stats dict (ML推定用)
         field_size: フィールドサイズ (ML推定用)
         field_scoring_avg: フィールド平均scoring_average (ML推定用)
+        model_version: "v1" or "v2"
 
     Returns:
         (推定CUT確率, 推定方法 "ml"/"heuristic")
     """
     # ML推定を試行
-    if _ml_models_loaded and _cut_classifier is not None and player_stats is not None:
-        ml_p_cut = _predict_p_cut_ml(wgr, player_stats, field_size, field_scoring_avg)
+    if model_version == "v2":
+        loaded = _ml_models_v2_loaded
+        clf = _cut_classifier_v2
+        feats = _egs_features_v2
+    else:
+        loaded = _ml_models_loaded
+        clf = _cut_classifier
+        feats = _egs_features
+
+    if loaded and clf is not None and player_stats is not None:
+        ml_p_cut = _predict_p_cut_ml(
+            wgr, player_stats, field_size, field_scoring_avg,
+            classifier=clf, features_list=feats,
+        )
         if ml_p_cut is not None:
             return ml_p_cut, "ml"
 
@@ -342,6 +400,8 @@ def estimate_e_position(
     field_size: int | None = None,
     field_scoring_avg: float | None = None,
     wgr: int | None = None,
+    *,
+    model_version: str = "v1",
 ) -> float:
     """E[position | make_cut] の推定。MLモデル利用可能ならML推定。
 
@@ -355,14 +415,25 @@ def estimate_e_position(
         field_size: フィールドサイズ (ML推定用)
         field_scoring_avg: フィールド平均scoring_average (ML推定用)
         wgr: World Golf Ranking (ML推定用)
+        model_version: "v1" or "v2"
 
     Returns:
         推定順位 (1〜e_cut_count)
     """
     # ML推定を試行
-    if _ml_models_loaded and _position_regressor is not None and player_stats is not None:
+    if model_version == "v2":
+        loaded = _ml_models_v2_loaded
+        reg = _position_regressor_v2
+        feats = _egs_features_v2
+    else:
+        loaded = _ml_models_loaded
+        reg = _position_regressor
+        feats = _egs_features
+
+    if loaded and reg is not None and player_stats is not None:
         ml_e_pos = _predict_e_position_ml(
             wgr or 9999, player_stats, field_size, field_scoring_avg, e_cut_count,
+            regressor=reg, features_list=feats,
         )
         if ml_e_pos is not None:
             return max(1.0, min(ml_e_pos, float(e_cut_count)))
@@ -418,6 +489,8 @@ def compute_player_egs(
     season_data: dict | None = None,
     wgr_table: list[tuple[int, float]] | None = None,
     field_scoring_avg: float | None = None,
+    *,
+    model_version: str = "v1",
 ) -> PlayerEGS:
     """1選手のEGSを算出する。
 
@@ -432,6 +505,7 @@ def compute_player_egs(
         season_data: シーズン実績データ
         wgr_table: WGR→P(cut) テーブル
         field_scoring_avg: フィールド平均scoring_average (ML推定用)
+        model_version: "v1" or "v2"
     """
     wgr = int(player.wgr) if player.wgr else 9999
     max_hc = field_params["max_handicap"]
@@ -459,6 +533,7 @@ def compute_player_egs(
         player_stats=player_stats_dict,
         field_size=field_size,
         field_scoring_avg=field_scoring_avg,
+        model_version=model_version,
     )
 
     e_pos = estimate_e_position(
@@ -467,6 +542,7 @@ def compute_player_egs(
         field_size=field_size,
         field_scoring_avg=field_scoring_avg,
         wgr=wgr,
+        model_version=model_version,
     )
 
     # CUT時のゲームスコア
@@ -513,6 +589,8 @@ def optimize_picks(
     field_size: int | None = None,
     season_data: dict[str, dict] | None = None,
     config: dict | None = None,
+    *,
+    model_version: str = "v1",
 ) -> EGSResult:
     """全グループのEGS最適ピックを選出する。
 
@@ -521,6 +599,7 @@ def optimize_picks(
         field_size: フィールドサイズ（既知の場合）
         season_data: {player_name: {season_played, season_cut}} or None
         config: game_optimization config section
+        model_version: "v1" or "v2"
 
     Returns:
         EGSResult
@@ -535,12 +614,14 @@ def optimize_picks(
         )
 
     # MLモデルロード (初回のみ)
-    global _ml_models_loaded
+    global _ml_models_loaded, _ml_models_v2_loaded
     use_ml = True
     if config:
         use_ml = config.get("use_ml_models", True)
     if use_ml and not _ml_models_loaded:
         _load_egs_models()
+    if use_ml and model_version == "v2" and not _ml_models_v2_loaded:
+        _load_egs_models_v2()
 
     field_params = _estimate_field_params(groups, field_size, config)
     field_ranking = _build_field_ranking(groups)
@@ -600,6 +681,7 @@ def optimize_picks(
                 season_data=sd,
                 wgr_table=wgr_table,
                 field_scoring_avg=field_scoring_avg,
+                model_version=model_version,
             )
             group_egs.append(pegs)
             all_egs[p.name] = pegs
