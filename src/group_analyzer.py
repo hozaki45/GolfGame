@@ -54,6 +54,9 @@ class GroupPlayer:
     p_cut: float | None = None                 # CUT確率
     handicap: int | None = None                # ハンデキャップ
 
+    # Major Affinity fields (Phase 7)
+    major_affinity_score: float | None = None   # 0-100 メジャー適性スコア
+
 
 @dataclass
 class GroupAnalysisResult:

@@ -627,6 +627,39 @@ class PGAStatsDB:
         finally:
             conn.close()
 
+    def get_all_major_results(self, major_nums: list[str]) -> list[dict]:
+        """全メジャー大会の結果を一括取得。
+
+        Args:
+            major_nums: メジャー大会番号リスト (e.g., ["014", "033", "011", "100", "026"])
+
+        Returns:
+            [{player_name, tournament_id, tournament_name, course_name, year, position}, ...]
+        """
+        conn = self._get_conn()
+        try:
+            conditions = " OR ".join("tr.tournament_id LIKE ?" for _ in major_nums)
+            params = [f"%{num}" for num in major_nums]
+
+            rows = conn.execute(f"""
+                SELECT
+                    tr.player_name,
+                    tr.tournament_id,
+                    t.tournament_name,
+                    t.course_name,
+                    tr.year,
+                    tr.position
+                FROM pga_tournament_results tr
+                JOIN pga_tournaments t
+                    ON tr.tournament_id = t.tournament_id AND tr.year = t.year
+                WHERE {conditions}
+                ORDER BY tr.year DESC, t.tournament_name
+            """, params).fetchall()
+
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
     #-----Course Analysis Methods-----
 
     def get_years_by_course(self, tournament_num: str) -> dict[str, list[int]]:

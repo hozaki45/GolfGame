@@ -47,21 +47,23 @@ def generate_html(
     ml_result: dict | None = None,
     egs_result=None,
     egs_v2_result=None,
+    major_data: dict | None = None,
 ) -> str:
-    """5タブ構成のChart.jsダッシュボードHTML生成。"""
+    """5-6タブ構成のChart.jsダッシュボードHTML生成。"""
     chart_data = _build_chart_data(result.groups, ml_result, egs_result)
     chart_json = json.dumps(chart_data, ensure_ascii=False)
     chart_json = chart_json.replace("</", "<\\/")
 
     has_egs = egs_result is not None
     has_picks_comparison = has_egs and ml_result and ml_result.get("predictions")
+    has_major = bool(major_data and major_data.get("is_major"))
 
     parts = [
         _head(result.tournament_name),
         "<body>",
         '<div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div>',
         _header(result.tournament_name, result.generated_at, result.bookmakers, ml_result),
-        _nav(has_egs=has_egs, has_picks_comparison=has_picks_comparison),
+        _nav(has_egs=has_egs, has_picks_comparison=has_picks_comparison, has_major=has_major),
         '<div class="container">',
         _section_dashboard(result.groups, ml_result),
         _section_odds_tab(result.groups, result.bookmakers),
@@ -71,6 +73,8 @@ def generate_html(
         parts.append(_section_game_tab(result.groups, ml_result, egs_result))
     if has_picks_comparison:
         parts.append(_section_picks_tab(result.groups, ml_result, egs_result, egs_v2_result))
+    if has_major:
+        parts.append(_section_major_tab(result.groups, major_data))
     parts += [
         "</div>",
         _footer(result.generated_at),
@@ -87,11 +91,13 @@ def save_html(
     ml_result: dict | None = None,
     egs_result=None,
     egs_v2_result=None,
+    major_data: dict | None = None,
 ) -> Path:
     """HTML生成・ファイル保存。"""
     html = generate_html(
         result, course_fit=course_fit, ml_result=ml_result,
         egs_result=egs_result, egs_v2_result=egs_v2_result,
+        major_data=major_data,
     )
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -475,7 +481,7 @@ def _header(
     return html
 
 
-def _nav(has_egs: bool = False, has_picks_comparison: bool = False) -> str:
+def _nav(has_egs: bool = False, has_picks_comparison: bool = False, has_major: bool = False) -> str:
     """タブ ピルナビゲーション。"""
     tabs = [
         ("dashboard", "Dashboard"),
@@ -486,6 +492,8 @@ def _nav(has_egs: bool = False, has_picks_comparison: bool = False) -> str:
         tabs.append(("game-tab", "Game Strategy"))
     if has_picks_comparison:
         tabs.append(("picks-tab", "Pick Comparison"))
+    if has_major:
+        tabs.append(("major-tab", "Major Analysis"))
     items = "".join(
         f'<div class="tab{" active" if i == 0 else ""}" '
         f'data-section="{sid}" onclick="showSection(\'{sid}\')">{label}</div>'
@@ -1185,6 +1193,313 @@ def _pick_card(
             f'<div style="font-size:.65rem;opacity:.7">'
             f'ML:{ml_sc} | EGS:{egs_sc} | HC:{hc} | P(cut):{p_cut}</div>'
         )
+    html += '</div>'
+    return html
+
+
+#----- Major Analysis タブ -----
+
+
+def _section_major_tab(
+    groups: dict[int, list[GroupPlayer]],
+    major_data: dict,
+) -> str:
+    """メジャー大会専用分析タブ。メジャー週のみ表示。"""
+    scores = major_data.get("scores", {})
+    per_t_scores = major_data.get("per_tournament_scores", {})
+    details = major_data.get("player_details", {})
+    history = major_data.get("major_history", {})
+    summary = major_data.get("field_summary", {})
+    current_major = major_data.get("current_major", "")
+
+    # 大会別の短縮名と色
+    MAJOR_SHORT = {
+        "Masters Tournament": ("Masters", "#22c55e"),
+        "PGA Championship": ("PGA", "#3b82f6"),
+        "THE PLAYERS Championship": ("PLAYERS", "#a855f7"),
+        "The Open Championship": ("Open", "#f59e0b"),
+        "U.S. Open": ("US Open", "#ef4444"),
+    }
+    # 大会名リスト（current_majorを先頭に）
+    all_major_names = list(MAJOR_SHORT.keys())
+    if current_major and current_major in all_major_names:
+        all_major_names.remove(current_major)
+        all_major_names.insert(0, current_major)
+
+    html = '<div id="major-tab" class="section">'
+
+    # --- A. サマリーカード ---
+    total = summary.get("total", 0)
+    experienced = summary.get("experienced", 0)
+    winners = summary.get("winners", [])
+    cur_exp = summary.get("current_experienced", 0)
+    cur_winners = summary.get("current_winners", [])
+    cur_short = MAJOR_SHORT.get(current_major, (current_major, "#f59e0b"))[0] if current_major else ""
+
+    html += '<div class="glass" style="margin-bottom:1.5rem;padding:1.5rem">'
+    html += (f'<h2 style="margin:0 0 1rem;font-size:1.3rem">'
+             f'Major Championship Analysis '
+             f'<span style="font-size:.65rem;padding:2px 10px;border-radius:99px;'
+             f'background:rgba(245,158,11,.2);color:#f59e0b;border:1px solid rgba(245,158,11,.4);'
+             f'vertical-align:middle">MAJOR</span></h2>')
+
+    # 統計カード行1: 全メジャー統計
+    html += '<div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem">'
+    html += (f'<div style="text-align:center">'
+             f'<div style="font-size:2rem;font-weight:800;color:#f59e0b">{experienced}/{total}</div>'
+             f'<div style="font-size:.75rem;opacity:.6">Major Experience</div></div>')
+    avg_majors = 0
+    if details:
+        played_list = [d.majors_played for d in details.values() if d.majors_played > 0]
+        avg_majors = sum(played_list) / len(played_list) if played_list else 0
+    html += (f'<div style="text-align:center">'
+             f'<div style="font-size:1.5rem;font-weight:700;color:#22c55e">{avg_majors:.1f}</div>'
+             f'<div style="font-size:.75rem;opacity:.6">Avg Majors Played</div></div>')
+    html += (f'<div style="text-align:center">'
+             f'<div style="font-size:1.5rem;font-weight:700;color:#3b82f6">{len(winners)}</div>'
+             f'<div style="font-size:.75rem;opacity:.6">Major Winners</div></div>')
+    # 現在の大会の統計
+    if current_major:
+        cur_color = MAJOR_SHORT.get(current_major, ("", "#f59e0b"))[1]
+        html += (f'<div style="text-align:center;padding:.4rem .8rem;border-radius:.5rem;'
+                 f'background:{cur_color}15;border:1px solid {cur_color}33">'
+                 f'<div style="font-size:1.5rem;font-weight:800;color:{cur_color}">'
+                 f'{cur_exp}/{total}</div>'
+                 f'<div style="font-size:.75rem;opacity:.6">{cur_short} Experience</div></div>')
+    html += '</div>'
+
+    # 勝者リスト (全メジャー + 現在の大会)
+    if winners:
+        html += '<div style="margin-bottom:.5rem;font-size:.7rem;opacity:.5">All Major Winners:</div>'
+        html += '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">'
+        for w in winners:
+            html += (f'<span style="font-size:.75rem;padding:3px 10px;border-radius:99px;'
+                     f'background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);'
+                     f'color:#f59e0b">{_escape(w["name"])} ({w["wins"]}W)</span>')
+        html += '</div>'
+    if cur_winners:
+        cur_color = MAJOR_SHORT.get(current_major, ("", "#f59e0b"))[1]
+        html += f'<div style="margin-bottom:.5rem;font-size:.7rem;opacity:.5">{cur_short} Winners:</div>'
+        html += '<div style="display:flex;gap:.5rem;flex-wrap:wrap">'
+        for w in cur_winners:
+            avg_str = f" Avg:{w['avg_pos']:.1f}" if w.get('avg_pos') else ""
+            html += (f'<span style="font-size:.75rem;padding:3px 10px;border-radius:99px;'
+                     f'background:{cur_color}22;border:1px solid {cur_color}44;'
+                     f'color:{cur_color}">{_escape(w["name"])} ({w["wins"]}W{avg_str})</span>')
+        html += '</div>'
+    html += '</div>'
+
+    # --- B. Major Specialists TOP10 (大会別スコア付き) ---
+    scored_players = [(name, sc) for name, sc in scores.items() if sc is not None]
+    scored_players.sort(key=lambda x: x[1], reverse=True)
+    top10 = scored_players[:10]
+
+    if top10:
+        html += '<div class="glass" style="margin-bottom:1.5rem;padding:1.5rem">'
+        html += '<h3 style="margin:0 0 .3rem;font-size:1.1rem">Major Specialists - Top 10</h3>'
+        html += (f'<div style="font-size:.7rem;opacity:.5;margin-bottom:1rem">'
+                 f'Score = {current_major or "Current"} 60% + Other Majors 40%</div>')
+        html += '<div style="display:flex;gap:.8rem;flex-wrap:wrap">'
+        for rank, (name, sc) in enumerate(top10, 1):
+            d = details.get(name)
+            if not d:
+                continue
+            if sc >= 80:
+                border_c = "#22c55e"
+            elif sc >= 50:
+                border_c = "#3b82f6"
+            else:
+                border_c = "#f59e0b"
+            wins_badge = f' <span style="color:#f59e0b">({d.win_count}W)</span>' if d.win_count > 0 else ""
+
+            # 大会別ミニバー
+            pt_scores = per_t_scores.get(name, {})
+            mini_bars = ""
+            for m_name in all_major_names:
+                short, color = MAJOR_SHORT.get(m_name, (m_name[:3], "#888"))
+                t_sc = pt_scores.get(m_name)
+                is_current = m_name == current_major
+                if t_sc is not None:
+                    bar_w = max(t_sc * 0.6, 2)
+                    border = f"border:1px solid {color}88;" if is_current else ""
+                    mini_bars += (
+                        f'<div style="display:flex;align-items:center;gap:4px;margin:1px 0">'
+                        f'<span style="font-size:.55rem;width:42px;text-align:right;opacity:.6;'
+                        f'{"font-weight:700;color:" + color if is_current else ""}">{short}</span>'
+                        f'<div style="height:8px;width:{bar_w}px;background:{color};'
+                        f'border-radius:2px;{border}"></div>'
+                        f'<span style="font-size:.55rem;opacity:.5">{t_sc:.0f}</span></div>'
+                    )
+                else:
+                    mini_bars += (
+                        f'<div style="display:flex;align-items:center;gap:4px;margin:1px 0">'
+                        f'<span style="font-size:.55rem;width:42px;text-align:right;opacity:.3">{short}</span>'
+                        f'<span style="font-size:.55rem;opacity:.2">-</span></div>'
+                    )
+
+            html += (f'<div style="flex:0 0 calc(20% - .7rem);min-width:160px;padding:.8rem;'
+                     f'border-radius:.6rem;background:rgba(255,255,255,.03);'
+                     f'border:1px solid {border_c}44">'
+                     f'<div style="font-size:.65rem;color:{border_c};font-weight:700">#{rank}</div>'
+                     f'<div style="font-weight:700;font-size:.9rem">{_escape(name)}{wins_badge}</div>'
+                     f'<div style="font-size:1.8rem;font-weight:800;'
+                     f'background:linear-gradient(135deg,{border_c},#f59e0b);'
+                     f'-webkit-background-clip:text;-webkit-text-fill-color:transparent;'
+                     f'margin:.2rem 0">{sc:.0f}</div>'
+                     f'<div style="margin:.3rem 0">{mini_bars}</div>'
+                     f'<div style="font-size:.6rem;opacity:.5">'
+                     f'Played:{d.majors_played} CUT:{d.cut_rate:.0%} T10:{d.top_10_count}</div>'
+                     f'</div>')
+        html += '</div></div>'
+
+    # --- C. グループ別メジャー実績テーブル (大会別スコア列付き) ---
+    for gid in sorted(groups.keys()):
+        players = groups[gid]
+        html += '<div class="glass" style="margin-bottom:1rem;padding:1rem">'
+        html += f'<h3 style="margin:0 0 .6rem;font-size:1rem">Group {gid}</h3>'
+        html += '<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:.72rem">'
+        # ヘッダー: 基本 + 大会別スコア
+        html += '<tr><th>#</th><th>Player</th><th>WGR</th>'
+        for m_name in all_major_names:
+            short, color = MAJOR_SHORT.get(m_name, (m_name[:3], "#888"))
+            is_cur = m_name == current_major
+            hl = f'background:{color}22;color:{color};font-weight:800' if is_cur else ''
+            html += f'<th style="{hl}">{short}</th>'
+        html += '<th>Majors</th><th>CUT%</th><th>T10</th><th>Wins</th>'
+        html += '<th style="background:rgba(245,158,11,.15);color:#f59e0b">Score</th></tr>'
+
+        rows = []
+        for p in players:
+            sc = scores.get(p.name)
+            d = details.get(p.name)
+            rows.append((p, sc, d))
+        rows.sort(key=lambda r: r[1] if r[1] is not None else -1, reverse=True)
+
+        for rank, (p, sc, d) in enumerate(rows, 1):
+            if d and d.majors_played > 0:
+                sc_color = "#22c55e" if sc and sc >= 80 else "#3b82f6" if sc and sc >= 50 else "inherit"
+                sc_str = f"{sc:.0f}" if sc is not None else "-"
+
+                html += f'<tr><td>{rank}</td>'
+                html += f'<td style="font-weight:600">{_escape(p.name)}</td>'
+                html += f'<td>{p.wgr or "-"}</td>'
+
+                # 大会別スコア
+                pt = per_t_scores.get(p.name, {})
+                for m_name in all_major_names:
+                    _, color = MAJOR_SHORT.get(m_name, ("", "#888"))
+                    t_sc = pt.get(m_name)
+                    is_cur = m_name == current_major
+                    if t_sc is not None:
+                        t_color = color if t_sc >= 50 else "inherit"
+                        bg = f"background:{color}11;" if is_cur else ""
+                        fw = "font-weight:700;" if t_sc >= 70 else ""
+                        html += f'<td style="{bg}{fw}color:{t_color}">{t_sc:.0f}</td>'
+                    else:
+                        bg = f"background:{color}08;" if is_cur else ""
+                        html += f'<td style="{bg}opacity:.3">-</td>'
+
+                html += (f'<td>{d.majors_played}</td>'
+                         f'<td>{d.cut_rate:.0%}</td>'
+                         f'<td>{d.top_10_count}</td>'
+                         f'<td>{"" if d.win_count == 0 else d.win_count}</td>'
+                         f'<td style="color:{sc_color};font-weight:700">{sc_str}</td></tr>')
+            else:
+                n_cols = len(all_major_names)
+                empty = '<td style="opacity:.2">-</td>' * n_cols
+                html += (f'<tr style="opacity:.4"><td>{rank}</td>'
+                         f'<td>{_escape(p.name)}</td><td>{p.wgr or "-"}</td>'
+                         f'{empty}'
+                         f'<td>0</td><td>-</td><td>-</td><td>-</td>'
+                         f'<td><span style="font-size:.6rem;padding:1px 6px;border-radius:99px;'
+                         f'background:rgba(255,255,255,.08)">Rookie</span></td></tr>')
+        html += '</table></div></div>'
+
+    # --- D. 大会別ブレークダウン ---
+    # 全大会名を収集
+    all_tournaments: dict[str, dict[str, list]] = {}
+    for name, tour_data in history.items():
+        for t_name, entries in tour_data.items():
+            if t_name not in all_tournaments:
+                all_tournaments[t_name] = {}
+            all_tournaments[t_name][name] = entries
+
+    if all_tournaments:
+        html += '<div class="glass" style="margin-bottom:1rem;padding:1.5rem">'
+        html += '<h3 style="margin:0 0 1rem;font-size:1.1rem">Tournament Breakdown</h3>'
+
+        for t_name in sorted(all_tournaments.keys()):
+            player_entries = all_tournaments[t_name]
+            # 年リスト（直近4年）
+            all_years = set()
+            for entries in player_entries.values():
+                for e in entries:
+                    all_years.add(e["year"])
+            years = sorted(all_years, reverse=True)[:4]
+
+            # このメジャーにフィールド内で出場した選手のみ
+            field_names = {p.name for players in groups.values() for p in players}
+            active_players = {n: e for n, e in player_entries.items() if n in field_names}
+            if not active_players:
+                continue
+
+            # 平均順位でソート
+            def sort_key(item):
+                positions = [e["position"] for e in item[1] if e["position"] is not None]
+                return sum(positions) / len(positions) if positions else 999
+
+            sorted_players = sorted(active_players.items(), key=sort_key)
+
+            # コース名
+            course = ""
+            for entries in active_players.values():
+                for e in entries:
+                    if e.get("course"):
+                        course = e["course"]
+                        break
+                if course:
+                    break
+
+            html += (f'<div style="margin-bottom:1.2rem">'
+                     f'<div style="font-weight:700;font-size:.9rem;margin-bottom:.4rem">'
+                     f'{_escape(t_name)}'
+                     f'<span style="font-size:.7rem;opacity:.5;margin-left:.5rem">{_escape(course)}</span>'
+                     f'</div>')
+            html += '<div style="overflow-x:auto"><table class="tbl" style="width:100%;font-size:.7rem">'
+            html += '<tr><th>Player</th>'
+            for y in years:
+                html += f'<th>{y}</th>'
+            html += '<th>Avg</th></tr>'
+
+            for pname, entries in sorted_players[:15]:
+                year_map = {e["year"]: e["position"] for e in entries}
+                positions = [e["position"] for e in entries if e["position"] is not None]
+                avg = sum(positions) / len(positions) if positions else None
+
+                html += f'<tr><td style="font-weight:600">{_escape(pname)}</td>'
+                for y in years:
+                    pos = year_map.get(y)
+                    if pos is not None:
+                        if pos == 1:
+                            cell = f'<td style="color:#f59e0b;font-weight:800">1st</td>'
+                        elif pos <= 5:
+                            cell = f'<td style="color:#22c55e;font-weight:700">{pos}th</td>'
+                        elif pos <= 10:
+                            cell = f'<td style="color:#3b82f6">{pos}th</td>'
+                        else:
+                            cell = f'<td>{pos}th</td>'
+                    elif y in year_map:
+                        cell = '<td style="color:#ef4444;opacity:.6">CUT</td>'
+                    else:
+                        cell = '<td style="opacity:.3">-</td>'
+                    html += cell
+                avg_str = f"{avg:.1f}" if avg else "-"
+                html += f'<td style="font-weight:600">{avg_str}</td></tr>'
+
+            html += '</table></div></div>'
+
+        html += '</div>'
+
     html += '</div>'
     return html
 

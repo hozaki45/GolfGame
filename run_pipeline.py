@@ -313,9 +313,10 @@ def main() -> int:
                         from src.database import save_ml_predictions
                         save_ml_predictions(tid, result.groups, ml_result)
 
-                    # HTML再生成（ML + EGS v1/v2付き）
+                    # HTML再生成（ML + EGS v1/v2 + Major付き）
                     egs_result = ml_result.get("egs_result")
                     egs_v2_result = ml_result.get("egs_v2_result")
+                    major_data = ml_result.get("major_data")
                     print("\n[STEP 9b] Re-generating HTML report with ML predictions...")
                     html_path = save_html(
                         result,
@@ -323,6 +324,7 @@ def main() -> int:
                         ml_result=ml_result,
                         egs_result=egs_result,
                         egs_v2_result=egs_v2_result,
+                        major_data=major_data,
                     )
                     print(f"[OK] HTML report updated: {html_path}")
                     if egs_result:
@@ -330,6 +332,8 @@ def main() -> int:
                               f"(agree={egs_result.agree_count}/{egs_result.total_groups})")
                     if egs_v2_result:
                         print(f"[OK] Pick Comparison tab included (v2 loaded)")
+                    if major_data and major_data.get("is_major"):
+                        print(f"[OK] Major Analysis tab included")
 
             except Exception as e:
                 print(f"[WARN] ML prediction failed (non-critical): {e}")

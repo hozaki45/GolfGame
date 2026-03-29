@@ -60,6 +60,7 @@ class IntegratedPrediction:
     stats_component: float       # ML統計スコア (0-100)
     fit_component: float         # コースフィットスコア (0-100)
     crowd_component: float = 0.0 # 群衆知恵スコア (0-100)
+    major_affinity_component: float = 0.0  # メジャー適性スコア (0-100)
     ml_rank_in_group: int = 0    # グループ内MLランク
     confidence: str = "Medium"   # "High" / "Medium" / "Low"
     model_version: str = "fixed_v0"
@@ -338,6 +339,7 @@ class EnsemblePredictor:
         stats_score: float | None,
         fit_score: float | None,
         crowd_score: float | None = None,
+        major_affinity_score: float | None = None,
     ) -> float:
         """信号を統合してスコアを算出。
 
@@ -349,6 +351,7 @@ class EnsemblePredictor:
             stats_score: ML統計スコア (0-100)
             fit_score: コースフィットスコア (0-100)
             crowd_score: 群衆知恵スコア (0-100)
+            major_affinity_score: メジャー適性スコア (0-100)
 
         Returns:
             0-100の統合スコア
@@ -372,6 +375,10 @@ class EnsemblePredictor:
             components["crowd"] = crowd_score
             active_weights["crowd"] = self.weights["crowd"]
 
+        if major_affinity_score is not None and "major_affinity" in self.weights:
+            components["major_affinity"] = major_affinity_score
+            active_weights["major_affinity"] = self.weights["major_affinity"]
+
         # ウェイトを正規化（合計1.0）
         total_weight = sum(active_weights.values())
         if total_weight <= 0:
@@ -389,6 +396,7 @@ class EnsemblePredictor:
         has_fit: bool,
         model_version: str,
         has_crowd: bool = False,
+        has_major_affinity: bool = False,
     ) -> str:
         """信頼度を判定。
 
@@ -397,6 +405,7 @@ class EnsemblePredictor:
             has_fit: コースフィットスコアがあるか
             model_version: 使用モデルバージョン
             has_crowd: 群衆知恵スコアがあるか
+            has_major_affinity: メジャー適性スコアがあるか
 
         Returns:
             "High" / "Medium" / "Low"
@@ -407,6 +416,8 @@ class EnsemblePredictor:
         if has_fit:
             signals += 1
         if has_crowd:
+            signals += 1
+        if has_major_affinity:
             signals += 1
 
         if signals >= 3 and model_version != "fixed_v0":
@@ -546,6 +557,19 @@ def run_ml_prediction(
         except Exception as e:
             print(f"[WARN] Could not load crowd signals: {e}")
 
+    # メジャーアフィニティスコアマップ
+    major_scores: dict[str, float | None] = {}
+    major_data = None
+    ma_config = config.get("major_affinity", {}) if config else {}
+    if ma_config.get("enabled", False):
+        try:
+            from .major_affinity import compute_major_affinity
+            major_data = compute_major_affinity(groups, tournament_name, ma_config)
+            if major_data and major_data.get("is_major"):
+                major_scores = major_data.get("scores", {})
+        except Exception as e:
+            print(f"[WARN] Could not compute major affinity: {e}")
+
     # 各グループで予測
     predictions: dict[str, IntegratedPrediction] = {}
     total_scored = 0
@@ -596,13 +620,15 @@ def run_ml_prediction(
             stats_sc = stats_scores.get(p.name)
             fit_sc = fit_scores.get(p.name)
             crowd_sc = crowd_scores.get(p.name)
+            major_sc = major_scores.get(p.name)
 
-            ml_score = ensemble.predict(odds_sc, stats_sc, fit_sc, crowd_sc)
+            ml_score = ensemble.predict(odds_sc, stats_sc, fit_sc, crowd_sc, major_sc)
             confidence = ensemble.get_confidence(
                 has_stats=stats_sc is not None,
                 has_fit=fit_sc is not None,
                 model_version=model_version,
                 has_crowd=crowd_sc is not None,
+                has_major_affinity=major_sc is not None,
             )
 
             pred = IntegratedPrediction(
@@ -612,6 +638,7 @@ def run_ml_prediction(
                 stats_component=stats_sc if stats_sc is not None else 0.0,
                 fit_component=fit_sc if fit_sc is not None else 0.0,
                 crowd_component=crowd_sc if crowd_sc is not None else 0.0,
+                major_affinity_component=major_sc if major_sc is not None else 0.0,
                 confidence=confidence,
                 model_version=model_version,
             )
@@ -652,6 +679,10 @@ def run_ml_prediction(
                 p_ml.ml_rank_in_group = pred.ml_rank_in_group
                 p_ml.ml_confidence = pred.confidence
                 p_ml.ml_model_version = pred.model_version
+            # メジャーアフィニティスコアを付与
+            ma_sc = major_scores.get(p_ml.name)
+            if ma_sc is not None:
+                p_ml.major_affinity_score = ma_sc
 
     # Game Score Optimization (EGS)
     egs_result = None
@@ -692,6 +723,7 @@ def run_ml_prediction(
         "weights": weights,
         "egs_result": egs_result,
         "egs_v2_result": egs_v2_result,
+        "major_data": major_data,
     }
 
 
