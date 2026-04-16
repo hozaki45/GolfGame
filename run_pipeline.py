@@ -8,6 +8,77 @@ from __future__ import annotations
 import sys
 
 
+def _verify_picks_field(
+    csv_path: str,
+    espn_player_names: list[str],
+    espn_tournament_name: str,
+) -> bool:
+    """Verify that the picks CSV field matches the ESPN tournament field.
+
+    Compares player names from the downloaded picks CSV against the ESPN
+    leaderboard to detect stale or mismatched field data (e.g. last week's
+    tournament field being reused).
+
+    Returns:
+        True if the field looks valid, False if a mismatch is detected.
+    """
+    import csv as csv_mod
+    from fuzzywuzzy import fuzz
+
+    if not espn_player_names:
+        print("[INFO] Field verification: ESPN player list unavailable, skipping")
+        return True
+
+    # Load player names from picks CSV
+    try:
+        with open(csv_path, encoding="utf-8") as f:
+            rows = list(csv_mod.DictReader(f))
+        csv_names = {row.get("Golfer", "").strip().lower() for row in rows if row.get("Golfer")}
+    except Exception as e:
+        print(f"[WARN] Field verification: could not read CSV: {e}")
+        return True
+
+    if not csv_names:
+        print("[WARN] Field verification: no player names found in CSV")
+        return True
+
+    espn_lower = {n.lower().strip() for n in espn_player_names}
+
+    # Count how many CSV players appear in the ESPN field (exact or fuzzy)
+    matched = 0
+    for csv_name in csv_names:
+        if csv_name in espn_lower:
+            matched += 1
+            continue
+        best = max(
+            (fuzz.token_sort_ratio(csv_name, en) for en in espn_lower),
+            default=0,
+        )
+        if best >= 85:
+            matched += 1
+
+    match_pct = matched / len(csv_names) * 100 if csv_names else 0
+
+    print(f"[INFO] Field verification: {matched}/{len(csv_names)} CSV players "
+          f"found in ESPN field ({match_pct:.0f}%)")
+    print(f"[INFO] ESPN field size: {len(espn_lower)} players")
+
+    if match_pct < 50:
+        print(f"[ERROR] Field mismatch detected! Only {match_pct:.0f}% of CSV players "
+              f"match the ESPN field for '{espn_tournament_name}'.")
+        print(f"[ERROR] The picks CSV may contain a stale field from a previous tournament.")
+        print(f"[ERROR] Pipeline will continue but results may be unreliable.")
+        return False
+
+    if match_pct < 75:
+        print(f"[WARN] Low field match rate ({match_pct:.0f}%). "
+              f"Some CSV players may not be in the '{espn_tournament_name}' field.")
+        return True
+
+    print(f"[OK] Field verification passed")
+    return True
+
+
 def _verify_odds_tournament(
     result,
     espn_player_names: list[str],
@@ -130,6 +201,14 @@ def main() -> int:
             print(f"[OK] Tournament dates: {tournament_start} ~ {tournament_end}")
     except Exception as e:
         print(f"[WARN] ESPN fetch failed (non-critical): {e}")
+
+    # Step 1.7: CSV選手とESPN選手の一致率検証
+    if csv_result.filepath and espn_player_names:
+        field_ok = _verify_picks_field(
+            str(csv_result.filepath), espn_player_names, espn_tournament_name,
+        )
+        if not field_ok:
+            print("[WARN] Continuing with potentially stale field data...")
 
     # Step 2: Run group analysis (fetches odds + generates text report)
     print("\n[STEP 2] Running group analysis...")
